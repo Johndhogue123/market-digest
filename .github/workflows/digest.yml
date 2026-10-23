@@ -33,6 +33,7 @@ jobs:
         env:
           ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
         run: python digest.py ${{ inputs.force && '--force' || '' }}
       - name: Publish
         run: |

@@ -18,6 +18,7 @@ No Claude, server, or paid API is needed to keep it running.
   so many names have no print at all and thin ones can show odd prices. Treat it as a prompt to look, not a quote.
 - **New** flag on Unusual moves for the first 15 minutes after a stock joins the list, plus an
   **Alerts** button (chime and desktop pop-up; the first look of the day alerts on nothing).
+- **Earnings tags** ("Earnings after close", "Reported today") come from Finnhub's free calendar. Get a free key at finnhub.io and add it as the repo secret `FINNHUB_KEY`; without it the tags are simply skipped.
 - **vol 2.1×** on each row: today's volume against a normal day's pace at this time.
 - **Trade ↗** on every row and market tile opens the stock on Robinhood.
 - Each row opens to today's range, a spike-and-fade read, and linked headlines.

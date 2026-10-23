@@ -14,8 +14,13 @@
   --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
 }
+:root[data-theme="light"] {
+  --bg: #f4f5f7; --surface: #fff; --surface-2: #eceff3; --line: #d9dee6;
+  --fg: #151a22; --muted: #5d6879; --accent: #b87a0c; --up: #0f8a5f; --down: #c93a49;
+  --up-bg: rgba(15,138,95,.12); --down-bg: rgba(201,58,73,.1); color-scheme: light;
+}
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
+  :root:not([data-theme]) {
     --bg: #f4f5f7; --surface: #fff; --surface-2: #eceff3; --line: #d9dee6;
     --fg: #151a22; --muted: #5d6879; --accent: #b87a0c; --up: #0f8a5f; --down: #c93a49;
     --up-bg: rgba(15,138,95,.12); --down-bg: rgba(201,58,73,.1); color-scheme: light;
@@ -56,11 +61,13 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .tag { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); }
 .tag.solid { background: var(--accent); color: var(--accent-ink); }
 .tag.dim { border-color: var(--line); color: var(--muted); }
+.tag.earn { border-style: dashed; }
 .tag.new { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .vol { font-family: var(--font-num); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .vol.hot { color: var(--accent); font-weight: 600; }
 .bar-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .alerts { font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+.top-btns { display: flex; gap: 8px; }
 .alerts[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .ratio { font-family: var(--font-num); font-size: 12px; color: var(--muted); justify-self: end; white-space: nowrap; }
 .detail { border-top: 1px solid var(--line); padding: 12px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-2); }
@@ -76,6 +83,12 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .news span { display: block; color: var(--muted); font-size: 12px; }
 .links { display: flex; flex-wrap: wrap; gap: 8px; }
 .links a { color: var(--fg); text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 10px; }
+.wl-add { display: flex; gap: 6px; }
+.wl-add input { flex: 1; min-width: 0; font: inherit; font-family: var(--font-num); text-transform: uppercase; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.wl-add button, .wl-x { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.wl-x { color: var(--muted); border: 0; border-left: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0 12px; }
+.wl-row { display: flex; align-items: stretch; }
+.wl-row .head { cursor: default; }
 .empty { text-align: center; color: var(--muted); padding: 28px 12px; border: 1px dashed var(--line); border-radius: 10px; }
 footer { color: var(--muted); font-size: 12px; }
 .cols { display: grid; gap: 14px; }
@@ -98,9 +111,16 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 <main class="wrap">
   <header class="bar-top">
     <div><h1>Market Digest</h1><p class="sub" id="asof">Loading</p></div>
-    <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
+    <div class="top-btns">
+      <button class="alerts" id="theme" title="Switch between light and dark">Theme</button>
+      <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
+    </div>
   </header>
   <div class="demo" id="demo" hidden>Preview with made-up numbers. Real data appears after the first scheduled run.</div>
+
+  <h2>Watchlist</h2>
+  <form class="wl-add" id="wlForm"><input id="wlInput" placeholder="Add ticker (S&P 500 or ETF), e.g. NVDA" maxlength="6" autocomplete="off" aria-label="Add ticker"><button>Add</button></form>
+  <ul class="list" id="wlList"></ul>
 
   <h2>Market</h2>
   <div class="breadth" id="breadth" role="img"></div>
@@ -169,6 +189,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function row(r, tab) {
     var fresh = tab === "unusual" && isNew(r.symbol);
     var tags = fresh ? '<span class="tag new">New</span>' : "";
+    if (r.earn) tags += '<span class="tag earn">' + esc(r.earn) + '</span>';
     if (r.read && r.read.kind === "fade") tags += '<span class="tag solid">Fading</span>';
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
     if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "" : "dim") + '">' + esc(r.usual) + '</span>';
@@ -208,7 +229,35 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     getJSON("premarket.json").then(function (g) { gaps = g; renderGaps(); }).catch(function () { gaps = null; renderGaps(); });
   }
 
+  // ---- watchlist: pinned at the top, stored in this browser ----
+  var watch = store("md-watch") || [];
+  function renderWatch() {
+    var q = (data && data.quotes) || {};
+    $("wlList").innerHTML = watch.length ? watch.map(function (sym) {
+      var v = q[sym];
+      if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (data ? 'not in S&P 500 / ETF list, or no trades yet' : 'loading') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
+      return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
+        '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span>' +
+        '<span class="meta"><span class="nm">' + price(v[1]) + '</span>' + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
+        '<span class="ratio">' + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span></span>' +
+        '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
+        '<button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
+    }).join("") : '<li class="empty">Add tickers above to pin them here.</li>';
+  }
+  $("wlForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var t = $("wlInput").value.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
+    $("wlInput").value = "";
+    if (t && watch.indexOf(t) < 0) { watch.push(t); store("md-watch", watch); renderWatch(); }
+  });
+  $("wlList").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-x]"); if (!b) return;
+    watch = watch.filter(function (x) { return x !== b.getAttribute("data-x"); });
+    store("md-watch", watch); renderWatch();
+  });
+
   function render() {
+    renderWatch();
     var s = data.settings;
     $("explain-unusual").textContent = "Moving at least " + s.unusual_ratio + "× their normal daily swing (average of the last " + s.lookback + " days).";
     $("explain-swingers").textContent = "Stocks that usually move " + s.swinger_normal + "% or more a day, ranked by today's move.";
@@ -248,6 +297,22 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", x === b); });
     render();
   });
+
+  // ---- Theme: follows the system until the toggle is used, then remembered ----
+  var themeBtn = $("theme"), themeMq = window.matchMedia("(prefers-color-scheme: light)");
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") || (themeMq.matches ? "light" : "dark");
+  }
+  function paintTheme() { themeBtn.textContent = currentTheme() === "light" ? "Dark mode" : "Light mode"; }
+  var savedTheme = store("md-theme");
+  if (savedTheme === "light" || savedTheme === "dark") document.documentElement.setAttribute("data-theme", savedTheme);
+  themeBtn.addEventListener("click", function () {
+    var next = currentTheme() === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    store("md-theme", next); paintTheme();
+  });
+  if (themeMq.addEventListener) themeMq.addEventListener("change", paintTheme);
+  paintTheme();
 
   // ---- "New" flags and alerts (Unusual moves only; Big swingers reshuffle too often) ----
   var NEW_MS = 15 * 60000, seen = null, seenDay = null;

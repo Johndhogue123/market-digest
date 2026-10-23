@@ -3,7 +3,8 @@ market data, finds unusual moves and big swingers, attaches headlines, and
 writes docs/data.json for the web page in docs/index.html.
 
 Runs every 15 minutes in GitHub Actions while the market is open. Needs two environment variables:
-ALPACA_KEY_ID and ALPACA_SECRET_KEY (paper account keys are fine).
+ALPACA_KEY_ID and ALPACA_SECRET_KEY (paper account keys are fine). Optional:
+FINNHUB_KEY (free key from finnhub.io) adds earnings tags; without it they are skipped.
 
     python digest.py            # real run (only during market hours)
     python digest.py --force    # run even if the market is closed
@@ -148,6 +149,37 @@ def fetch_news(symbols):
     return by_sym
 
 
+def fetch_earnings(symbols, today):
+    """Tag text per symbol for companies reporting today or who reported after the
+    close on a recent day, from Finnhub's free earnings calendar. Returns {} without
+    a key or if the lookup fails, so the rest of the digest never depends on it."""
+    key = os.environ.get("FINNHUB_KEY")
+    if not key:
+        return {}
+    start = (datetime.fromisoformat(today) - timedelta(days=3)).date().isoformat()
+    url = "https://finnhub.io/api/v1/calendar/earnings?" + urllib.parse.urlencode(
+        {"from": start, "to": today, "token": key})
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            events = json.load(resp).get("earningsCalendar") or []
+    except Exception as e:
+        print(f"Earnings lookup failed, skipping tags: {e}")
+        return {}
+    wanted, tags = set(symbols), {}
+    for e in events:
+        sym, date, hour = e.get("symbol"), e.get("date"), e.get("hour")
+        if sym not in wanted:
+            continue
+        if date == today:
+            tags[sym] = ("Reported today" if hour == "bmo"
+                         else "Earnings after close" if hour == "amc" else "Earnings today")
+        elif date < today and hour == "amc" and sym not in tags:
+            tags[sym] = "Reported after close"
+        elif date < today and hour == "bmo" and sym not in tags:
+            tags[sym] = "Reported " + date[5:]
+    return tags
+
+
 # ---------- analysis ----------
 
 def normal_move(closes):
@@ -199,7 +231,7 @@ def fade_read(price, high, low, prev):
     return None
 
 
-def build_rows(snaps, closes, volumes, names, groups, today, frac):
+def build_rows(snaps, closes, volumes, names, groups, today, frac, earnings):
     rows = []
     for sym, s in snaps.items():
         try:
@@ -222,6 +254,7 @@ def build_rows(snaps, closes, volumes, names, groups, today, frac):
             "ratio": round(abs(pct) / nm, 1) if nm else None,
             "volume": day["v"], "rvol": rel_volume(day["v"], av, frac),
             "read": fade_read(price, day["h"], day["l"], prev),
+            "earn": earnings.get(sym),
         })
     return rows
 
@@ -355,15 +388,15 @@ def settings():
             "list_size": LIST_SIZE, "news_per_symbol": NEWS_PER_SYMBOL}
 
 
-def write_baseline(names, groups, etfs, closes, volumes, today):
+def write_baseline(names, groups, etfs, closes, volumes, today, earnings):
     """What the near-live worker needs to rebuild the lists from fresh prices:
-    each symbol's name, group, normal move and average volume."""
+    each symbol's name, group, normal move and average volume, plus earnings tags."""
     syms = {}
     for s in sorted(names):
         nm, av = normal_move(closes.get(s, [])), avg_volume(volumes.get(s, []))
         syms[s] = [names[s], groups[s], round(nm, 3) if nm else None, round(av) if av else None]
     with open(BASELINE_OUT, "w") as f:
-        json.dump({"date": today, "settings": settings(), "etfs": etfs, "symbols": syms}, f,
+        json.dump({"date": today, "settings": settings(), "etfs": etfs, "earnings": earnings, "symbols": syms}, f,
                   separators=(",", ":"))
 
 
@@ -376,7 +409,7 @@ def main():
     now_et = datetime.now(ET)
     today = now_et.date().isoformat()
 
-    close, closes, volumes = None, {}, {}
+    close, closes, volumes, earnings = None, {}, {}, {}
     if demo:
         rows = demo_rows(names, groups)
     else:
@@ -392,8 +425,9 @@ def main():
             return
         snaps = fetch_snapshots(symbols)
         closes, volumes = fetch_daily_history(symbols, today)
-        write_baseline(names, groups, etfs, closes, volumes, today)
-        rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et))
+        earnings = fetch_earnings(symbols, today)
+        write_baseline(names, groups, etfs, closes, volumes, today, earnings)
+        rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et), earnings)
         if not rows:
             print("No trades yet today; leaving the page as it is.")
             return
@@ -410,6 +444,8 @@ def main():
         "slot": slot_label(now_et, close), "demo": demo,
         "breadth": {"up": up, "down": len(rows) - up, "total": len(rows)},
         "market": market, "unusual": unusual, "swingers": swingers,
+        # Every scanned symbol, so the page's watchlist can show any ticker: [name, price, pct, ratio, rvol]
+        "quotes": {r["symbol"]: [r["name"], r["price"], r["pct"], r["ratio"], r["rvol"]] for r in rows},
         "settings": settings(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

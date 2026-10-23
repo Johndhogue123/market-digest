@@ -138,6 +138,7 @@ async function build(env) {
       ratio: normal ? round(Math.abs(pct) / normal, 1) : null,
       volume: day.v, rvol: avgVol ? round(day.v / (avgVol * frac), 1) : null,
       read: fadeRead(price, day.h, day.l, prev),
+      earn: (base.earnings || {})[sym] || null,
     });
   }
   // Before the first trade of the day, the page keeps showing the last 15-minute digest.
@@ -160,5 +161,7 @@ async function build(env) {
     live: true, generated: new Date().toISOString(), slot: minutes >= 960 ? "Close" : "Intraday", demo: false,
     breadth: { up, down: rows.length - up, total: rows.length },
     market, unusual, swingers, settings: s,
+    // Every scanned symbol, for the page's watchlist: [name, price, pct, ratio, rvol]
+    quotes: Object.fromEntries(rows.map((r) => [r.symbol, [r.name, r.price, r.pct, r.ratio, r.rvol]])),
   };
 }
