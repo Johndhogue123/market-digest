@@ -332,6 +332,10 @@ body.compact .cols { gap: 14px; }
 .chip > .spark { position: absolute; top: 7px; right: 8px; width: 44px; height: 16px; }
 body.tv .wrap { zoom: 1.3; } body.tv .glance { zoom: 1.3; }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.px { font-family: var(--font-num); font-weight: 500; font-size: 12px; color: var(--muted); font-style: normal; white-space: nowrap; }
+.row .tk + .px { margin: 0 6px 0 2px; }
+.chip .x { white-space: nowrap; }
+.nitem .px, .ec .px { font-size: 11px; }
 </style>
 </head>
 <body>
@@ -395,6 +399,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
   function pct(p) { return (p > 0 ? "+" : "") + p.toFixed(2) + "%"; }
+  function usd(p) { return p == null ? "" : "$" + (p >= 1 ? p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : p.toFixed(4)); }
   function price(p) { return p >= 1 ? p.toFixed(2) : p.toFixed(4); }
   function cls(p) { return p >= 0 ? "up" : "down"; }
   function ago(t) {
@@ -543,9 +548,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "solid" : "dim") + '">' + esc(r.usual) + '</span><span class="vol">usual \u00b1' + (r.normal != null ? r.normal.toFixed(1) : "?") + '%</span>';
     var isOpen = !!open[tab + ":" + r.symbol];
     return '<li class="row' + (fresh ? ' is-new' : '') + '" data-s="' + esc(tab + ":" + r.symbol) + '"><div class="top"><button class="head" aria-expanded="' + isOpen + '">' +
-      '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
+      '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="px">' + usd(r.price) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chgwrap">' + spark(r.symbol, r.prev, r.pct) + '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>' +
-      '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' + ranges(r.price, r.low, r.high, r.w52) +
+      '<span class="meta">' + tags + ranges(r.price, r.low, r.high, r.w52) +
       volTag(r.rvol) + sinceTag(r.symbol, r.pct) + '</span>' +
       '<span class="ratio">' + mvbar(r.ratio, cls(r.pct)) + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
       peek(r) +
@@ -557,9 +562,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function gapRow(r) {
     var tags = r.thin ? '<span class="tag dim" title="Few shares traded on IEX, so this price may not mean much">Thin</span>' : "";
     return '<li class="row"><div class="top"><button class="head" aria-expanded="false">' +
-      '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
+      '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="px">' + usd(r.price) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
-      '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + ' (was ' + price(r.prev) + ')</span>' +
+      '<span class="meta">' + tags + '<span class="nm">was ' + usd(r.prev) + '</span>' +
       '<span class="vol">' + Math.round(r.pm_volume).toLocaleString() + ' sh</span></span>' +
       '<span class="ratio">' + mvbar(r.ratio, cls(r.pct)) + r.ratio.toFixed(1) + '× normal</span>' + peek(r) + '</button>' +
       '<a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener">Trade ↗</a></div></li>';
@@ -589,9 +594,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     $("wlList").innerHTML = watch.length ? watch.map(function (sym) {
       var v = q[sym];
       if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
-      return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
+      return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="px">' + usd(v[1]) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
         '<span class="chgwrap">' + spark(sym, null, v[2]) + '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span></span>' +
-        '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + '<span class="nm">' + price(v[1]) + '</span>' + ranges(v[1], v[6], v[5], v[7]) + volTag(v[4]) + sinceTag(sym, v[2]) + '</span>' +
+        '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + ranges(v[1], v[6], v[5], v[7]) + volTag(v[4]) + sinceTag(sym, v[2]) + '</span>' +
         '<span class="ratio">' + mvbar(v[3], cls(v[2])) + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
         '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
         '<button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
@@ -646,7 +651,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     $("newsList").innerHTML = items.slice(0, newsAll ? NEWS_LONG : NEWS_SHORT).map(function (n) {
       var chips = n.tk.slice(0, 2).map(function (x) {
         var v = q[x]; // quotes: [name, price, pct, ratio, rvol]
-        return '<span><b>' + esc(x) + '</b> ' + (v ? '<i class="' + cls(v[2]) + '">' + pct(v[2]) + '</i>' : '') + '</span>';
+        return '<span><b>' + esc(x) + '</b> ' + (v ? '<em class="px">' + usd(v[1]) + '</em> <i class="' + cls(v[2]) + '">' + pct(v[2]) + '</i>' : '') + '</span>';
       }).join("");
       return '<div class="nitem"><span class="nt">' + chips + '</span><a href="' + esc(n.u) + '" target="_blank" rel="noopener" title="' + esc(n.h) + '">' + esc(n.h) + '</a><time>' + ago(n.t) + '</time></div>';
     }).join("");
@@ -673,9 +678,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     var items = (earn.items || []).filter(function (e) { return e.d >= today; });
     if (!items.length) { box.hidden = true; return; }
-    var q = {};
-    (data.market || []).concat(data.unusual || [], data.swingers || []).forEach(function (r) { q[r.symbol] = r.pct; });
-    Object.keys(data.quotes || {}).forEach(function (k) { q[k] = data.quotes[k][2]; });
+    var q = {}, qp = {};
+    (data.market || []).concat(data.unusual || [], data.swingers || []).forEach(function (r) { q[r.symbol] = r.pct; qp[r.symbol] = r.price; });
+    Object.keys(data.quotes || {}).forEach(function (k) { q[k] = data.quotes[k][2]; qp[k] = data.quotes[k][1]; });
     var when = { bmo: "before open", amc: "after close", dmh: "during market" };
     function label(d) {
       if (d === today) return "Today";
@@ -686,7 +691,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     items.forEach(function (e) {
       if (e.d !== last) { html += '<span class="ed">' + label(e.d) + '</span>'; last = e.d; }
       html += '<a class="ec" href="' + rh(e.s) + '" target="_blank" rel="noopener" title="' + esc(e.n) + '"><b>' + esc(e.s) + '</b>' + (when[e.h] ? '<span class="w">' + when[e.h] + '</span>' : '') +
-        (q[e.s] != null ? '<span class="p ' + cls(q[e.s]) + '">' + pct(q[e.s]) + '</span>' : '') + '</a>';
+        (qp[e.s] != null ? '<span class="px">' + usd(qp[e.s]) + '</span>' : '') + (q[e.s] != null ? '<span class="p ' + cls(q[e.s]) + '">' + pct(q[e.s]) + '</span>' : '') + '</a>';
     });
     $("earnList").innerHTML = html;
     box.hidden = false;
@@ -799,7 +804,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       return '<a class="chip" style="--heat:' + heat + '%;--chipc:var(--' + cls(r.pct) + ')" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
         '<div class="s">' + esc(r.symbol) + '</div><div class="n">' + esc(r.name) + '</div>' +
         '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div>' +
-        (r.ratio != null ? '<div class="x">' + r.ratio.toFixed(1) + '× usual</div>' : '') + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + spark(r.symbol, r.prev, r.pct) + '</a>';
+        '<div class="x">' + (r.ratio != null ? r.ratio.toFixed(1) + '× · ' : '') + usd(r.price) + '</div>' + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + spark(r.symbol, r.prev, r.pct) + '</a>';
     }).join("");
   }
   function boot(d) {
