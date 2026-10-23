@@ -36,6 +36,7 @@ ET = ZoneInfo("America/New_York")
 # Tuning. A stock's "normal move" is its average absolute daily % change over
 # the last LOOKBACK trading days.
 LOOKBACK = 20
+LONG_LOOKBACK = 60       # ...or over this many days if that is bigger
 UNUSUAL_RATIO = 2.5      # today's move must be this many times its normal move
 UNUSUAL_MIN_PCT = 1.5    # ...and at least this big in absolute %
 SWINGER_NORMAL = 2.5     # a stock whose normal move is at least this % is a "swinger"
@@ -46,6 +47,10 @@ NEWS_PAGES = 6             # pages of 50 recent headlines scanned for the combin
 PREMARKET_START_MIN = 150  # pre-market scans begin this many minutes before the open (7:00am ET)
 GAP_MIN_PCT = 1.0          # pre-market gap lists need at least this % vs yesterday's close...
 GAP_MIN_RATIO = 1.5        # ...and this many times the stock's normal daily move
+NEAR_52W_PCT = 3.0         # within this % of the 52-week high or low earns a "Near 52w" tag
+STREAK_MIN = 3             # this many days in a row the same way earns a "3-day slide/run" tag
+TREND_TAIL = 6             # recent closes kept in baseline.json so the worker can work out streaks
+RANK_BOOST = 1.25          # unusual moves with a streak or a 52-week extreme sort a little higher
 AFTER_HOURS_MIN = 60      # keep scanning this long after the close (to 5pm ET, about when IEX stops trading)
 THIN_SHARES = 2000         # under this many IEX shares traded pre-market, flag the price as thin
 
@@ -106,9 +111,10 @@ def fetch_snapshots(symbols):
 
 
 def fetch_daily_history(symbols, today):
-    """Recent daily closes and volumes per symbol, oldest first, excluding today."""
-    start = (datetime.fromisoformat(today) - timedelta(days=45)).date().isoformat()
-    closes, volumes = {}, {}
+    """Daily closes and volumes per symbol, oldest first, excluding today, plus each symbol's
+    (high, low) over the last year for the 52-week range."""
+    start = (datetime.fromisoformat(today) - timedelta(days=370)).date().isoformat()
+    closes, volumes, ranges = {}, {}, {}
     for part in chunks(symbols, 100):
         token = None
         while True:
@@ -122,10 +128,12 @@ def fetch_daily_history(symbols, today):
                     if b["t"][:10] < today:
                         closes.setdefault(sym, []).append(b["c"])
                         volumes.setdefault(sym, []).append(b["v"])
+                        hi, lo = ranges.get(sym, (b["h"], b["l"]))
+                        ranges[sym] = (max(hi, b["h"]), min(lo, b["l"]))
             token = res.get("next_page_token")
             if not token:
                 break
-    return closes, volumes
+    return closes, volumes, ranges
 
 
 def fetch_news(symbols):
@@ -215,15 +223,51 @@ def fetch_earnings(symbols, today):
 
 # ---------- analysis ----------
 
-def normal_move(closes):
-    c = closes[-(LOOKBACK + 1):]
+def mean_move(closes, days):
+    c = closes[-(days + 1):]
     moves = [abs(b - a) / a * 100 for a, b in zip(c, c[1:]) if a > 0]
     return statistics.mean(moves) if len(moves) >= 5 else None
+
+
+def normal_move(closes):
+    """Average daily move over the last month, or the last three months if that is bigger, so a
+    stock that has been unusually sleepy doesn't flag on an ordinary day."""
+    month, quarter = mean_move(closes, LOOKBACK), mean_move(closes, LONG_LOOKBACK)
+    return max(month, quarter) if month and quarter else month
 
 
 def avg_volume(volumes):
     v = volumes[-LOOKBACK:]
     return statistics.mean(v) if len(v) >= 5 else None
+
+
+def trend(price, high, low, tail, range52):
+    """Multi-day context for one stock: where it sits in its 52-week range, and how many days in a
+    row it has moved the same way (today counts, using the live price). tail is recent closes,
+    oldest first, excluding today. Mirrored in worker/worker.js."""
+    out = {"streak": 0, "chg3": None, "w52": None, "near52": None}
+    path = list(tail[-TREND_TAIL:]) + [price]
+    if len(path) >= 4 and path[-4] > 0:
+        out["chg3"] = round((price - path[-4]) / path[-4] * 100, 1)
+    for a, b in zip(reversed(path[:-1]), reversed(path[1:])):
+        step = 1 if b > a else -1 if b < a else 0
+        if not step or (out["streak"] and step != (1 if out["streak"] > 0 else -1)):
+            break
+        out["streak"] += step
+    if range52:
+        hi, lo = max(range52[0], high), min(range52[1], low)
+        if hi > lo:
+            out["w52"] = [round(lo, 4), round(hi, 4)]
+            if (hi - price) / hi * 100 <= NEAR_52W_PCT:
+                out["near52"] = "high"
+            elif (price - lo) / lo * 100 <= NEAR_52W_PCT:
+                out["near52"] = "low"
+    return out
+
+
+def rank_score(r):
+    """Unusual-move sort key: the ratio, nudged up when multi-day context backs it up."""
+    return r["ratio"] * (RANK_BOOST if r.get("near52") or abs(r.get("streak") or 0) >= STREAK_MIN else 1)
 
 
 def session_fraction(now_et):
@@ -264,7 +308,7 @@ def fade_read(price, high, low, prev):
     return None
 
 
-def build_rows(snaps, closes, volumes, names, groups, today, frac, earnings, close=None):
+def build_rows(snaps, closes, volumes, ranges, names, groups, today, frac, earnings, close=None):
     rows = []
     for sym, s in snaps.items():
         try:
@@ -295,13 +339,14 @@ def build_rows(snaps, closes, volumes, names, groups, today, frac, earnings, clo
             "volume": day["v"], "rvol": rel_volume(day["v"], av, frac),
             "read": fade_read(price, day["h"], day["l"], prev),
             "earn": earnings.get(sym), "ah": ah,
+            **trend(price, day["h"], day["l"], closes.get(sym, []), ranges.get(sym)),
         })
     return rows
 
 
 def pick_lists(rows, etfs):
     unusual = [r for r in rows if r["ratio"] and r["ratio"] >= UNUSUAL_RATIO and abs(r["pct"]) >= UNUSUAL_MIN_PCT]
-    unusual.sort(key=lambda r: -r["ratio"])
+    unusual.sort(key=lambda r: -rank_score(r))
     swingers = [r for r in rows if r["normal"] and r["normal"] >= SWINGER_NORMAL]
     swingers.sort(key=lambda r: -abs(r["pct"]))
     for r in swingers:
@@ -373,7 +418,7 @@ def build_gaps(snaps, closes, names, groups, open_et):
 
 def run_premarket(symbols, names, groups, now_et, open_et):
     snaps = fetch_snapshots(symbols)
-    closes, _ = fetch_daily_history(symbols, open_et.date().isoformat())
+    closes, _, _ = fetch_daily_history(symbols, open_et.date().isoformat())
     gaps = build_gaps(snaps, closes, names, groups, open_et)
     pm = fetch_premarket_bars([r["symbol"] for r in gaps], now_et.replace(hour=4, minute=0, second=0, microsecond=0),
                               open_et.date().isoformat()) if gaps else {}
@@ -395,6 +440,15 @@ def run_premarket(symbols, names, groups, now_et, open_et):
 
 # ---------- demo data ----------
 
+def demo_tail(rnd, prev, normal):
+    """Fake recent closes ending at prev, sometimes a steady slide or run, so the streak tags show in previews."""
+    drift = rnd.choice([0, 0, 0, 1, -1]) * normal * 0.6
+    tail = [prev]
+    for _ in range(TREND_TAIL - 1):
+        tail.append(tail[-1] / (1 + (drift + rnd.gauss(0, normal * 0.3)) / 100))
+    return list(reversed(tail))
+
+
 def demo_rows(names, groups):
     rnd = random.Random(7)
     rows = []
@@ -413,7 +467,9 @@ def demo_rows(names, groups):
                      "prev": prev, "open": prev, "high": round(hi, 2), "low": round(lo, 2),
                      "pct": round(pct, 2), "normal": normal, "ratio": round(abs(pct) / normal, 1),
                      "volume": rnd.randint(200_000, 9_000_000), "rvol": round(rnd.lognormvariate(0.1, 0.6), 1),
-                     "read": fade_read(price, hi, lo, prev)})
+                     "read": fade_read(price, hi, lo, prev),
+                     **trend(price, hi, lo, demo_tail(rnd, prev, normal),
+                            (prev * rnd.uniform(0.6, 0.95), prev * rnd.uniform(1.0, 1.5)))})
     return rows
 
 
@@ -428,16 +484,18 @@ def demo_news(symbols):
 def settings():
     return {"lookback": LOOKBACK, "unusual_ratio": UNUSUAL_RATIO, "unusual_min_pct": UNUSUAL_MIN_PCT,
             "swinger_normal": SWINGER_NORMAL, "bigger_than_usual": BIGGER_THAN_USUAL,
-            "list_size": LIST_SIZE, "news_per_symbol": NEWS_PER_SYMBOL}
+            "streak_min": STREAK_MIN, "near_52w_pct": NEAR_52W_PCT, "list_size": LIST_SIZE, "news_per_symbol": NEWS_PER_SYMBOL}
 
 
-def write_baseline(names, groups, etfs, closes, volumes, today, earnings):
+def write_baseline(names, groups, etfs, closes, volumes, ranges, today, earnings):
     """What the near-live worker needs to rebuild the lists from fresh prices:
-    each symbol's name, group, normal move and average volume, plus earnings tags."""
+    each symbol's name, group, normal move and average volume, its last year's high and low and
+    its last few closes (for 52-week range and streaks), plus earnings tags."""
     syms = {}
     for s in sorted(names):
         nm, av = normal_move(closes.get(s, [])), avg_volume(volumes.get(s, []))
-        syms[s] = [names[s], groups[s], round(nm, 3) if nm else None, round(av) if av else None]
+        syms[s] = [names[s], groups[s], round(nm, 3) if nm else None, round(av) if av else None,
+                  [round(x, 4) for x in ranges[s]] if s in ranges else None, closes.get(s, [])[-TREND_TAIL:]]
     with open(BASELINE_OUT, "w") as f:
         json.dump({"date": today, "settings": settings(), "etfs": etfs, "earnings": earnings, "symbols": syms}, f,
                   separators=(",", ":"))
@@ -492,12 +550,12 @@ def main():
             print("Market not open; leaving the page as it is.")
             return
         snaps = fetch_snapshots(symbols)
-        closes, volumes = fetch_daily_history(symbols, today)
+        closes, volumes, ranges = fetch_daily_history(symbols, today)
         earnings = fetch_earnings(symbols, today)
-        write_baseline(names, groups, etfs, closes, volumes, today, earnings)
+        write_baseline(names, groups, etfs, closes, volumes, ranges, today, earnings)
         write_exchanges(symbols, today)
         write_news(symbols, now_et)
-        rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et), earnings, close)
+        rows = build_rows(snaps, closes, volumes, ranges, names, groups, today, session_fraction(now_et), earnings, close)
         if not rows:
             print("No trades yet today; leaving the page as it is.")
             return
@@ -514,8 +572,8 @@ def main():
         "slot": slot_label(now_et, close), "demo": demo,
         "breadth": {"up": up, "down": len(rows) - up, "total": len(rows)},
         "market": market, "unusual": unusual, "swingers": swingers,
-        # Every scanned symbol, so the page's watchlist can show any ticker: [name, price, pct, ratio, rvol, high, low]
-        "quotes": {r["symbol"]: [r["name"], r["price"], r["pct"], r["ratio"], r["rvol"], r["high"], r["low"]] for r in rows},
+        # Every scanned symbol, so the page's watchlist can show any ticker: [name, price, pct, ratio, rvol, high, low, w52, streak, chg3, near52]
+        "quotes": {r["symbol"]: [r["name"], r["price"], r["pct"], r["ratio"], r["rvol"], r["high"], r["low"], r["w52"], r["streak"], r["chg3"], r["near52"]] for r in rows},
         "settings": settings(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

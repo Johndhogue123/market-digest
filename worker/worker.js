@@ -87,6 +87,29 @@ function fadeRead(price, high, low, prev) {
   return null;
 }
 
+// Multi-day context: streak (today counts, via the live price), 3-day change, 52-week range. Mirrors trend() in digest.py.
+function trend(s, price, high, low, tail, range52) {
+  const out = { streak: 0, chg3: null, w52: null, near52: null };
+  const path = [...(tail || []), price];
+  if (path.length >= 4 && path[path.length - 4] > 0) out.chg3 = round((price - path[path.length - 4]) / path[path.length - 4] * 100, 1);
+  for (let i = path.length - 1; i > 0; i--) {
+    const step = path[i] > path[i - 1] ? 1 : path[i] < path[i - 1] ? -1 : 0;
+    if (!step || (out.streak && step !== Math.sign(out.streak))) break;
+    out.streak += step;
+  }
+  if (range52) {
+    const hi = Math.max(range52[1], high), lo = Math.min(range52[0], low);
+    if (hi > lo) {
+      out.w52 = [round(lo, 4), round(hi, 4)];
+      if ((hi - price) / hi * 100 <= s.near_52w_pct) out.near52 = "high";
+      else if ((price - lo) / lo * 100 <= s.near_52w_pct) out.near52 = "low";
+    }
+  }
+  return out;
+}
+
+const rankScore = (r, s) => r.ratio * (r.near52 || Math.abs(r.streak || 0) >= s.streak_min ? 1.25 : 1);
+
 async function fetchNews(env, symbols, perSymbol) {
   const since = new Date(Date.now() - 36 * 3600_000).toISOString().replace(/\.\d+Z$/, "Z");
   const wanted = new Set(symbols);
@@ -130,7 +153,7 @@ async function build(env) {
     if (!day || !prevBar || day.t.slice(0, 10) !== today || !prevBar.c) continue;
     const price = (snap.latestTrade && snap.latestTrade.p) || day.c;
     const prev = prevBar.c;
-    const [name, group, normal, avgVol] = base.symbols[sym] || ["", "", null, null];
+    const [name, group, normal, avgVol, range52, tail] = base.symbols[sym] || ["", "", null, null, null, []];
     const pct = (price - prev) / prev * 100;
     // After 4pm: move since today's regular close (IEX daily bars stop at the close).
     const ah = minutes >= 960 && day.c && snap.latestTrade && snap.latestTrade.p !== day.c
@@ -142,13 +165,14 @@ async function build(env) {
       volume: day.v, rvol: avgVol ? round(day.v / (avgVol * frac), 1) : null,
       read: fadeRead(price, day.h, day.l, prev),
       earn: (base.earnings || {})[sym] || null, ah,
+      ...trend(s, price, day.h, day.l, tail, range52),
     });
   }
   // Before the first trade of the day, the page keeps showing the last 15-minute digest.
   if (!rows.length) return { live: false };
 
   const unusual = rows.filter((r) => r.ratio && r.ratio >= s.unusual_ratio && Math.abs(r.pct) >= s.unusual_min_pct)
-    .sort((a, b) => b.ratio - a.ratio).slice(0, s.list_size);
+    .sort((a, b) => rankScore(b, s) - rankScore(a, s)).slice(0, s.list_size);
   const swingers = rows.filter((r) => r.normal && r.normal >= s.swinger_normal)
     .sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, s.list_size);
   for (const r of swingers) r.usual = r.ratio >= s.bigger_than_usual ? "Bigger than usual" : "Normal day for it";
@@ -164,7 +188,7 @@ async function build(env) {
     live: true, generated: new Date().toISOString(), slot: minutes >= 1020 ? "Close" : minutes >= 960 ? "After hours" : "Intraday", demo: false,
     breadth: { up, down: rows.length - up, total: rows.length },
     market, unusual, swingers, settings: s,
-    // Every scanned symbol, for the page's watchlist: [name, price, pct, ratio, rvol]
-    quotes: Object.fromEntries(rows.map((r) => [r.symbol, [r.name, r.price, r.pct, r.ratio, r.rvol, r.high, r.low]])),
+    // Every scanned symbol, for the page's watchlist: [name, price, pct, ratio, rvol, high, low, w52, streak, chg3, near52]
+    quotes: Object.fromEntries(rows.map((r) => [r.symbol, [r.name, r.price, r.pct, r.ratio, r.rvol, r.high, r.low, r.w52, r.streak, r.chg3, r.near52]])),
   };
 }

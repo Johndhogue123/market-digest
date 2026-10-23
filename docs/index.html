@@ -85,6 +85,16 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .mini { position: relative; height: 4px; border-radius: 2px; background: var(--line); min-width: 56px; align-self: center; }
 .mini i { position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: var(--fg); transform: translate(-50%,-50%); }
 .chip .mini { display: block; margin-top: 6px; }
+.chip .mini + .mini { margin-top: 4px; }
+.rng { display: grid; grid-template-columns: auto 1fr; gap: 3px 6px; align-items: center; min-width: 96px; }
+.rng b { font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.rngrow .rng { max-width: 240px; }
+.mini.w52 i { background: var(--accent); }
+.mini.w52::before, .mini.w52::after { content: ""; position: absolute; top: -2px; width: 1px; height: 8px; background: var(--muted); opacity: .5; }
+.mini.w52::before { left: 0; } .mini.w52::after { right: 0; }
+.tag.trend.up { border-color: var(--up); } .tag.trend.down { border-color: var(--down); }
+.tag.w52 { border-color: var(--muted); color: var(--fg); }
+.tag.warn { background: var(--accent); color: var(--accent-ink); }
 .chip .x { color: var(--muted); font-size: 11px; font-family: var(--font-num); }
 .status { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .pill { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
@@ -212,7 +222,15 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       return '<li><a href="' + esc(n.url) + '" target="_blank" rel="noopener">' + esc(n.headline) + '</a>' +
         '<span>' + esc(n.source) + ' · ' + esc(ago(n.time)) + '</span></li>';
     }).join("");
-    return bar(r) +
+    var w = r.w52, from52 = "";
+    if (w) {
+      var offHi = (w[1] - r.price) / w[1] * 100, offLo = (r.price - w[0]) / w[0] * 100;
+      from52 = '<div><div class="bar"><span class="dot" style="left:' + Math.max(0, Math.min(100, (r.price - w[0]) / (w[1] - w[0]) * 100)) + '%"></span></div>' +
+        '<div class="lbl"><span>52w low ' + price(w[0]) + '</span><span>52w high ' + price(w[1]) + '</span></div></div>' +
+        '<p class="read">' + (offHi < 0.05 ? 'At its <b>52-week high</b>.' : '<b>' + offHi.toFixed(1) + '%</b> below its 52-week high and <b>' + offLo.toFixed(1) + '%</b> above its low.') +
+        (Math.abs(r.streak || 0) >= 2 ? ' Moving ' + (r.streak > 0 ? 'up' : 'down') + ' <b>' + Math.abs(r.streak) + '</b> days in a row' + (r.chg3 != null ? ' (' + sgn1(r.chg3) + ' over 3 days)' : '') + '.' : '') + '</p>';
+    }
+    return bar(r) + from52 +
       (r.read ? '<p class="read"><b>' + esc(r.read.title) + '.</b> ' + esc(r.read.text) + '</p>' : "") +
       '<p class="read">Usually moves about <b>' + (r.normal != null ? r.normal.toFixed(1) : "?") + '%</b> a day. Today is ' +
       (r.ratio != null ? r.ratio.toFixed(1) + '× that.' : 'unknown.') +
@@ -234,6 +252,27 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     return '<span class="mini" title="Where it trades in today\'s range: low ' + esc(price_(low)) + ', high ' + esc(price_(high)) + '"><i style="left:' + Math.max(0, Math.min(100, (price - low) / (high - low) * 100)) + '%"></i></span>';
   }
   function price_(p) { return price(p); }
+  // 52-week range: a second thin bar under today's range, with the dot in accent colour.
+  function mini52(price, w) {
+    if (!w) return "";
+    return '<span class="mini w52" title="Where it trades in its 52-week range: low ' + esc(price_(w[0])) + ', high ' + esc(price_(w[1])) + '"><i style="left:' + Math.max(0, Math.min(100, (price - w[0]) / (w[1] - w[0]) * 100)) + '%"></i></span>';
+  }
+  function ranges(price, low, high, w) {
+    var d = mini(price, low, high), y = mini52(price, w);
+    return d || y ? '<span class="rng">' + (d ? '<b>Day</b>' + d : '') + (y ? '<b>52w</b>' + y : '') + '</span>' : "";
+  }
+  function sgn1(p) { return (p > 0 ? "+" : "") + p.toFixed(1) + "%"; }
+  // Multi-day tags: near the 52-week high/low, a 3+ day slide or run, and the combination that matters
+  // (near a high but sliding, near a low but bouncing).
+  function trendTags(streak, chg3, near, minStreak) {
+    var n = Math.abs(streak || 0), long_ = n >= (minStreak || 3), t = "";
+    if (near === "high" && long_ && streak < 0) t += '<span class="tag warn" title="Within a few % of its 52-week high but down several days in a row">Slipping from 52w high</span>';
+    else if (near === "low" && long_ && streak > 0) t += '<span class="tag warn" title="Within a few % of its 52-week low but up several days in a row">Bouncing off 52w low</span>';
+    else if (near) t += '<span class="tag w52">Near 52w ' + near + '</span>';
+    if (long_) t += '<span class="tag trend ' + (streak > 0 ? 'up' : 'down') + '" title="Up or down every day for this many days, including today">' + n + '-day ' + (streak > 0 ? 'run' : 'slide') +
+      (chg3 != null ? ' <span class="' + cls(chg3) + '">' + sgn1(chg3) + '</span>' : '') + '</span>';
+    return t;
+  }
   function newsFor(sym) {
     var best = null;
     ((news && news.news) || []).forEach(function (n) { if (n.s.indexOf(sym) >= 0 && (!best || n.t > best.t)) best = n; });
@@ -254,6 +293,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var tags = fresh ? '<span class="tag new">New</span>' : "";
     if (r.ah != null && Math.abs(r.ah) >= 0.3) tags += '<span class="tag dim" title="Move since the 4pm close, thin IEX trading">AH <span class="' + cls(r.ah) + '">' + pct(r.ah) + '</span></span>';
     if (r.earn) tags += '<span class="tag earn">' + esc(r.earn) + '</span>';
+    tags += trendTags(r.streak, r.chg3, r.near52, data && data.settings && data.settings.streak_min);
     if (r.read && r.read.kind === "fade") tags += '<span class="tag solid">Fading</span>';
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
     if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "solid" : "dim") + '">' + esc(r.usual) + '</span><span class="vol">usual \u00b1' + (r.normal != null ? r.normal.toFixed(1) : "?") + '%</span>';
@@ -263,7 +303,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' +
       (r.rvol != null ? '<span class="vol' + (r.rvol >= 2 ? ' hot' : '') + '">vol ' + r.rvol.toFixed(1) + '×</span>' : '') + '</span>' +
-      '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' + peek(r) +
+      '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
+      '<span class="peek rngrow">' + ranges(r.price, r.low, r.high, r.w52) + '</span>' + peek(r) +
       '</button><a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">Trade ↗</a></div><div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? detail(r) : '') + '</div></li>';
   }
 
@@ -306,7 +347,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
       return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
         '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span>' +
-        '<span class="meta"><span class="nm">' + price(v[1]) + '</span>' + mini(v[1], v[6], v[5]) + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
+        '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + '<span class="nm">' + price(v[1]) + '</span>' + ranges(v[1], v[6], v[5], v[7]) + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
         '<span class="ratio">' + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
         '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
         '<button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
@@ -382,7 +423,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     document.title = (nNew ? "(" + nNew + ") " : "") + "Market Digest";
     paintStatus(nNew);
     var s = data.settings;
-    $("explain-unusual").textContent = "At least " + s.unusual_ratio + "× their normal daily swing.";
+    $("explain-unusual").textContent = "At least " + s.unusual_ratio + "× their normal daily swing. Streaks and 52-week extremes rank a little higher.";
     $("explain-swingers").textContent = "Usually move " + s.swinger_normal + "%+ a day, biggest move first.";
     ["unusual", "swingers"].forEach(function (t) {
       var rows = data[t];
@@ -412,7 +453,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       return '<a class="chip" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
         '<div class="s">' + esc(r.symbol) + '</div><div class="n">' + esc(r.name) + '</div>' +
         '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div>' +
-        (r.ratio != null ? '<div class="x">' + r.ratio.toFixed(1) + '× usual</div>' : '') + mini(r.price, r.low, r.high) + '</a>';
+        (r.ratio != null ? '<div class="x">' + r.ratio.toFixed(1) + '× usual</div>' : '') + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + '</a>';
     }).join("");
     render();
   }
