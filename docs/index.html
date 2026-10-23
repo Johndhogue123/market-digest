@@ -67,6 +67,19 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .vol.hot { color: var(--accent); font-weight: 600; }
 .bar-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .alerts { font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+.newsbox { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; }
+.newsbox[hidden] { display: none; }
+.nitem { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; font-size: 13px; min-width: 0; }
+.nitem + .nitem { border-top: 1px solid var(--line); }
+.nitem time { color: var(--muted); font-size: 12px; white-space: nowrap; font-family: var(--font-num); }
+.nitem .nt { font-family: var(--font-num); font-weight: 600; font-size: 12px; white-space: nowrap; display: flex; flex-direction: column; gap: 1px; min-width: 96px; flex: none; }
+.nitem .nt b { font-weight: 600; font-size: 12px; }
+.nitem .nt i { font-style: normal; font-size: 12px; }
+.nitem { align-items: center; }
+.nitem a { color: inherit; text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nitem a:hover { text-decoration: underline; }
+.newsbox.all .nitem a { white-space: normal; }
+.newsmore { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 0; padding: 4px 0 6px; cursor: pointer; }
 .top-btns { display: flex; gap: 8px; }
 .alerts[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .ratio { font-family: var(--font-num); font-size: 12px; color: var(--muted); justify-self: end; white-space: nowrap; }
@@ -117,6 +130,11 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     </div>
   </header>
   <div class="demo" id="demo" hidden>Preview with made-up numbers. Real data appears after the first scheduled run.</div>
+
+  <section class="newsbox" id="newsbox" hidden aria-label="Headlines for stocks on this page">
+    <div id="newsList"></div>
+    <button class="newsmore" id="newsMore" hidden></button>
+  </section>
 
   <h2>Watchlist</h2>
   <form class="wl-add" id="wlForm"><input id="wlInput" placeholder="Add ticker (S&P 500 or ETF), e.g. NVDA" maxlength="6" autocomplete="off" aria-label="Add ticker"><button>Add</button></form>
@@ -234,7 +252,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     $("gapList").innerHTML = gaps.gaps.length ? gaps.gaps.map(gapRow).join("") : '<li class="empty">No gaps yet.</li>';
   }
   function loadGaps() {
-    getJSON("premarket.json").then(function (g) { gaps = g; renderGaps(); }).catch(function () { gaps = null; renderGaps(); });
+    getJSON("premarket.json").then(function (g) { gaps = g; renderGaps(); renderNews(); }).catch(function () { gaps = null; renderGaps(); });
   }
 
   // ---- watchlist: pinned at the top, stored in this browser ----
@@ -256,16 +274,67 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     e.preventDefault();
     var t = $("wlInput").value.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
     $("wlInput").value = "";
-    if (t && watch.indexOf(t) < 0) { watch.push(t); store("md-watch", watch); renderWatch(); }
+    if (t && watch.indexOf(t) < 0) { watch.push(t); store("md-watch", watch); renderWatch(); renderNews(); }
   });
   $("wlList").addEventListener("click", function (e) {
     var b = e.target.closest("[data-x]"); if (!b) return;
     watch = watch.filter(function (x) { return x !== b.getAttribute("data-x"); });
-    store("md-watch", watch); renderWatch();
+    store("md-watch", watch); renderWatch(); renderNews();
   });
+
+  // ---- combined news: headlines (docs/news.json) for tickers shown anywhere on this page ----
+  var news = null, newsAll = false, NEWS_SHORT = 4, NEWS_LONG = 15;
+  function renderNews() {
+    var box = $("newsbox");
+    if (!news || !data) { box.hidden = true; return; }
+    var on = {}, own = [], move = {};
+    function addOwn(r) { (r.news || []).forEach(function (n) { own.push({ h: n.headline, u: n.url, t: n.time, s: [r.symbol] }); }); }
+    ["unusual", "swingers"].forEach(function (t) { (data[t] || []).forEach(function (r) { on[r.symbol] = 1; move[r.symbol] = [r.name, r.price, r.pct]; addOwn(r); }); });
+    if (gaps && gaps.date === new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" })) gaps.gaps.forEach(function (r) { on[r.symbol] = 1; addOwn(r); });
+    watch.forEach(function (s) { on[s] = 1; });
+    var seen = {}, items = [];
+    own.concat(news.news).forEach(function (n) {
+      var tk = n.s.filter(function (x) { return on[x]; });
+      if (!tk.length) return;
+      var k = n.h.toLowerCase().replace(/[^a-z0-9]/g, "");
+      var prev = seen[n.u] || seen[k];
+      if (prev) { // same story again: merge tickers
+        tk.forEach(function (x) { if (prev.tk.indexOf(x) < 0) prev.tk.push(x); });
+        return;
+      }
+      var it = { h: n.h, u: n.u, t: n.t, tk: tk };
+      seen[n.u] = seen[k] = it; items.push(it);
+    });
+    // Priority: watchlist first, then the biggest move today, then newest.
+    var q = Object.assign({}, move, (data && data.quotes) || {});
+    function rank(n) {
+      var w = n.tk.some(function (x) { return watch.indexOf(x) >= 0; }) ? 1 : 0;
+      var m = Math.max.apply(null, n.tk.map(function (x) { return q[x] ? Math.abs(q[x][2]) : 0; }));
+      return [w, m];
+    }
+    items.forEach(function (n) { n.r = rank(n); });
+    items.sort(function (a, b) { return b.r[0] - a.r[0] || b.r[1] - a.r[1] || (a.t < b.t ? 1 : -1); });
+    box.hidden = !items.length;
+    box.classList.toggle("all", newsAll);
+    $("newsList").innerHTML = items.slice(0, newsAll ? NEWS_LONG : NEWS_SHORT).map(function (n) {
+      var chips = n.tk.slice(0, 2).map(function (x) {
+        var v = q[x]; // quotes: [name, price, pct, ratio, rvol]
+        return '<span><b>' + esc(x) + '</b> ' + (v ? '<i class="' + cls(v[2]) + '">' + pct(v[2]) + '</i>' : '') + '</span>';
+      }).join("");
+      return '<div class="nitem"><span class="nt">' + chips + '</span><a href="' + esc(n.u) + '" target="_blank" rel="noopener">' + esc(n.h) + '</a><time>' + ago(n.t) + '</time></div>';
+    }).join("");
+    var more = $("newsMore");
+    more.hidden = items.length <= NEWS_SHORT;
+    more.textContent = newsAll ? "Show fewer" : "Show " + Math.min(items.length, NEWS_LONG) + " headlines";
+  }
+  $("newsMore").addEventListener("click", function () { newsAll = !newsAll; renderNews(); });
+  function loadNews() {
+    getJSON("news.json").then(function (n) { news = n; renderNews(); }).catch(function () {});
+  }
 
   function render() {
     renderWatch();
+    renderNews();
     var s = data.settings;
     $("explain-unusual").textContent = "Moving at least " + s.unusual_ratio + "× their normal daily swing (average of the last " + s.lookback + " days).";
     $("explain-swingers").textContent = "Stocks that usually move " + s.swinger_normal + "% or more a day, ranked by today's move.";
@@ -415,9 +484,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
     load(true);
     loadGaps();
+    loadNews();
     // Live data refreshes every minute; the plain digest about every 15, so check every 3.
     // Keep polling in a background tab while alerts are on.
-    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); } }, liveUrl ? 60000 : 180000);
+    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); loadNews(); } }, liveUrl ? 60000 : 180000);
   });
 })();
 </script>

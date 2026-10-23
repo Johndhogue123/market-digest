@@ -27,6 +27,8 @@ OUT = os.path.join(ROOT, "docs", "data.json")
 PREMARKET_OUT = os.path.join(ROOT, "docs", "premarket.json")
 # Per-symbol normals for the near-live worker in worker/, which only fetches today's prices.
 BASELINE_OUT = os.path.join(ROOT, "docs", "baseline.json")
+# Recent headlines about universe stocks; the page picks the ones for tickers it is showing.
+NEWS_OUT = os.path.join(ROOT, "docs", "news.json")
 DATA_URL = "https://data.alpaca.markets"
 TRADING_URL = "https://paper-api.alpaca.markets"
 ET = ZoneInfo("America/New_York")
@@ -40,6 +42,7 @@ SWINGER_NORMAL = 2.5     # a stock whose normal move is at least this % is a "sw
 BIGGER_THAN_USUAL = 1.8  # swinger tag threshold
 LIST_SIZE = 25
 NEWS_PER_SYMBOL = 3
+NEWS_PAGES = 6             # pages of 50 recent headlines scanned for the combined news strip
 PREMARKET_START_MIN = 150  # pre-market scans begin this many minutes before the open (7:00am ET)
 GAP_MIN_PCT = 1.0          # pre-market gap lists need at least this % vs yesterday's close...
 GAP_MIN_RATIO = 1.5        # ...and this many times the stock's normal daily move
@@ -147,6 +150,35 @@ def fetch_news(symbols):
         ranked.sort(key=lambda x: x["focus"] > 3)  # stable: focused first, newest within each
         by_sym[s] = ranked[:NEWS_PER_SYMBOL]
     return by_sym
+
+
+def write_news(symbols, now_et):
+    """Recent headlines tagged with S&P 500 / ETF tickers, for the page's combined news strip.
+    The page filters by what is on screen (movers, gaps, the browser-side watchlist), so this
+    keeps a pool rather than choosing tickers. Roundups tagging many tickers are skipped."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    wanted, items, token = set(symbols), {}, None
+    try:
+        for _ in range(NEWS_PAGES):
+            params = {"start": since, "limit": 50, "sort": "desc"}
+            if token:
+                params["page_token"] = token
+            res = get(DATA_URL, "/v1beta1/news", params)
+            for a in res.get("news", []):
+                tagged = a.get("symbols", [])
+                syms = [t for t in tagged if t in wanted]
+                if syms and len(tagged) <= 3 and a.get("url"):
+                    items.setdefault(a["url"], {"h": a.get("headline", ""), "u": a["url"], "src": a.get("source", ""),
+                                               "t": a.get("created_at", ""), "s": syms})
+            token = res.get("next_page_token")
+            if not token:
+                break
+    except Exception as e:
+        print(f"News pool failed, skipping: {e}")
+        return
+    with open(NEWS_OUT, "w") as f:
+        json.dump({"generated": now_et.isoformat(timespec="minutes"), "news": list(items.values())}, f, separators=(",", ":"))
+    print(f"Wrote {NEWS_OUT}: {len(items)} headlines.")
 
 
 def fetch_earnings(symbols, today):
@@ -341,6 +373,7 @@ def run_premarket(symbols, names, groups, now_et, open_et):
         r["pm_volume"], r["pm_high"], r["pm_low"] = b.get("volume", 0), b.get("high"), b.get("low")
         r["thin"] = r["pm_volume"] < THIN_SHARES
         r["news"] = news.get(r["symbol"], [])
+    write_news(symbols, now_et)
     payload = {"generated": now_et.isoformat(timespec="minutes"), "date": open_et.date().isoformat(),
                "open": open_et.isoformat(timespec="minutes"),
                "settings": {"min_pct": GAP_MIN_PCT, "min_ratio": GAP_MIN_RATIO, "thin_shares": THIN_SHARES},
@@ -453,6 +486,7 @@ def main():
         earnings = fetch_earnings(symbols, today)
         write_baseline(names, groups, etfs, closes, volumes, today, earnings)
         write_exchanges(symbols, today)
+        write_news(symbols, now_et)
         rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et), earnings)
         if not rows:
             print("No trades yet today; leaving the page as it is.")
