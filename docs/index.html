@@ -82,6 +82,9 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .newsmore { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 0; padding: 4px 0 6px; cursor: pointer; }
 .top-btns { display: flex; gap: 8px; }
 .alerts[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.peek { grid-column: 1 / -1; font-size: 13px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.peek.none { color: var(--muted); font-style: italic; }
+.peek time { color: var(--muted); font-family: var(--font-num); font-size: 12px; margin-left: 6px; }
 .ratio { font-family: var(--font-num); font-size: 12px; color: var(--muted); justify-self: end; white-space: nowrap; }
 .detail { border-top: 1px solid var(--line); padding: 12px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-2); }
 .detail[hidden] { display: none; }
@@ -210,6 +213,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<a href="https://finance.yahoo.com/quote/' + t + '/news" target="_blank" rel="noopener">Yahoo news</a></div>';
   }
 
+  // Latest headline shown on the collapsed row, so the "why" is visible without opening it.
+  function peek(r) {
+    var n = (r.news || [])[0];
+    return n ? '<span class="peek" title="' + esc(n.headline) + '">' + esc(n.headline) + '<time>' + esc(ago(n.time)) + '</time></span>'
+             : '<span class="peek none">No headline in the last day and a half</span>';
+  }
   function rh(sym) { return "https://robinhood.com/stocks/" + encodeURIComponent(sym); }
 
   function row(r, tab) {
@@ -225,7 +234,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' +
       (r.rvol != null ? '<span class="vol' + (r.rvol >= 2 ? ' hot' : '') + '">vol ' + r.rvol.toFixed(1) + '×</span>' : '') + '</span>' +
-      '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
+      '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' + peek(r) +
       '</button><a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">Trade ↗</a></div><div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? detail(r) : '') + '</div></li>';
   }
 
@@ -236,9 +245,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     return '<li class="row"><div class="top"><button class="head" aria-expanded="false">' +
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
-      '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' +
+      '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + ' (was ' + price(r.prev) + ')</span>' +
       '<span class="vol">' + Math.round(r.pm_volume).toLocaleString() + ' sh</span></span>' +
-      '<span class="ratio">' + r.ratio.toFixed(1) + '× normal</span></button>' +
+      '<span class="ratio">' + r.ratio.toFixed(1) + '× normal</span>' + peek(r) + '</button>' +
       '<a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener">Trade ↗</a></div></li>';
   }
   function renderGaps() {
@@ -261,7 +270,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var q = (data && data.quotes) || {};
     $("wlList").innerHTML = watch.length ? watch.map(function (sym) {
       var v = q[sym];
-      if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (data ? 'not in S&P 500 / ETF list, or no trades yet' : 'loading') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
+      if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
       return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
         '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span>' +
         '<span class="meta"><span class="nm">' + price(v[1]) + '</span>' + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
@@ -355,7 +364,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var b = d.breadth, upW = b.total ? b.up / b.total * 100 : 0;
     $("breadth").innerHTML = '<i style="width:' + upW + '%;background:var(--up)"></i><i style="width:' + (100 - upW) + '%;background:var(--down)"></i>';
     $("breadth").setAttribute("aria-label", b.up + " up, " + b.down + " down");
-    $("breadthText").textContent = b.up + " up, " + b.down + " down across " + b.total + " stocks and ETFs.";
+    $("breadthText").textContent = Math.round(upW) + "% of stocks up (" + b.up + " up, " + b.down + " down of " + b.total + ").";
     $("market").innerHTML = d.market.map(function (r) {
       return '<a class="chip" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
         '<div class="s">' + esc(r.symbol) + '</div><div class="n">' + esc(r.name) + '</div>' +
@@ -480,7 +489,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
         $("list-unusual").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
       });
   }
-  getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; }).catch(function () {});
+  getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; if (data) renderWatch(); }).catch(function () {});
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
     load(true);
     loadGaps();
