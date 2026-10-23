@@ -12,6 +12,10 @@ No Claude, server, or paid API is needed to keep it running.
   (average absolute daily % change over the last 20 days) and at least 1.5%.
 - **Big swingers:** stocks that normally move 2.5%+ a day (TSLA-type names),
   ranked by today's move, tagged "Bigger than usual" or "Normal day for it".
+- **New** flag on Unusual moves for the first 15 minutes after a stock joins the list, plus an
+  **Alerts** button (chime and desktop pop-up; the first look of the day alerts on nothing).
+- **vol 2.1×** on each row: today's volume against a normal day's pace at this time.
+- **Trade ↗** on every row and market tile opens the stock on Robinhood.
 - Each row opens to today's range, a spike-and-fade read, and linked headlines.
 
 ## Setup (one time)
@@ -34,3 +38,18 @@ apps. Not investment advice.
 
 The page re-checks for new data every 3 minutes, so it can stay open all day.
 Scheduled runs can start a few minutes late when GitHub is busy.
+
+## Near-live (optional, free)
+
+The page updates every 15 minutes by default. To get about one-minute updates, deploy the
+Cloudflare Worker in `worker/`, which rebuilds the lists from fresh Alpaca prices:
+
+1. Make a free Cloudflare account. Create an API token (**My Profile → API Tokens → Create Token →
+   "Edit Cloudflare Workers" template**) and copy your **Account ID** from the dashboard.
+2. Add repo secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+3. **Actions → Deploy live worker → Run workflow.** It deploys the worker, copies your Alpaca keys
+   into it, and writes `docs/live.json` so the page uses it.
+
+If the worker is down or the market is closed, the page falls back to the 15-minute digest.
+The worker needs a one-time `digest.py` run first, which publishes `docs/baseline.json`.
+If you fork the repo, change `BASELINE_URL` in `worker/wrangler.toml`.

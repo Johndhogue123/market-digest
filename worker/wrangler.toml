@@ -1,0 +1,8 @@
+name = "market-digest-live"
+main = "worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+# Published by digest.py through GitHub Pages. Change it if you fork the repo.
+BASELINE_URL = "https://johndhogue123.github.io/market-digest/baseline.json"
