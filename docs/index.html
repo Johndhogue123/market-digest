@@ -127,6 +127,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   <p class="explain" id="breadthText"></p>
   <div class="strip" id="market"></div>
 
+  <section id="gapbox" hidden>
+    <h2>Pre-market gaps</h2>
+    <p class="explain" id="gapExplain"></p>
+    <ul class="list" id="gapList"></ul>
+  </section>
+
   <div class="tabs" role="tablist">
     <button role="tab" data-tab="unusual" aria-selected="true">Unusual moves</button>
     <button role="tab" data-tab="swingers" aria-selected="false">Big swingers</button>
@@ -195,6 +201,32 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       (r.rvol != null ? '<span class="vol' + (r.rvol >= 2 ? ' hot' : '') + '">vol ' + r.rvol.toFixed(1) + '×</span>' : '') + '</span>' +
       '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
       '</button><a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">Trade ↗</a></div><div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? detail(r) : '') + '</div></li>';
+  }
+
+  // ---- pre-market gaps (docs/premarket.json, written by the scans before the open) ----
+  var gaps = null;
+  function gapRow(r) {
+    var tags = r.thin ? '<span class="tag dim" title="Few shares traded on IEX, so this price may not mean much">Thin</span>' : "";
+    return '<li class="row"><div class="top"><button class="head" aria-expanded="false">' +
+      '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
+      '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
+      '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' +
+      '<span class="vol">' + Math.round(r.pm_volume).toLocaleString() + ' sh</span></span>' +
+      '<span class="ratio">' + r.ratio.toFixed(1) + '× normal</span></button>' +
+      '<a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener">Trade ↗</a></div></li>';
+  }
+  function renderGaps() {
+    var box = $("gapbox");
+    var today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    if (!gaps || gaps.date !== today) { box.hidden = true; return; }
+    box.hidden = false;
+    var s = gaps.settings, open = new Date(gaps.open), after = Date.now() >= open;
+    $("gapExplain").textContent = (after ? "Final read before the open, " : "As of ") + new Date(gaps.generated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) +
+      ". Latest pre-market price against yesterday's close, at least " + s.min_pct + "% and " + s.min_ratio + "× normal. IEX sees only a slice of pre-market trading, so thin names can print odd prices.";
+    $("gapList").innerHTML = gaps.gaps.length ? gaps.gaps.map(gapRow).join("") : '<li class="empty">No gaps yet.</li>';
+  }
+  function loadGaps() {
+    getJSON("premarket.json").then(function (g) { gaps = g; renderGaps(); }).catch(function () { gaps = null; renderGaps(); });
   }
 
   // ---- watchlist: pinned at the top, stored in this browser ----
@@ -373,9 +405,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   }
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
     load(true);
+    loadGaps();
     // Live data refreshes every minute; the plain digest about every 15, so check every 3.
     // Keep polling in a background tab while alerts are on.
-    setInterval(function () { if (!document.hidden || alertsOn) load(false); }, liveUrl ? 60000 : 180000);
+    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); } }, liveUrl ? 60000 : 180000);
   });
 })();
 </script>

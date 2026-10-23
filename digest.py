@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "docs", "data.json")
+PREMARKET_OUT = os.path.join(ROOT, "docs", "premarket.json")
 # Per-symbol normals for the near-live worker in worker/, which only fetches today's prices.
 BASELINE_OUT = os.path.join(ROOT, "docs", "baseline.json")
 DATA_URL = "https://data.alpaca.markets"
@@ -39,6 +40,10 @@ SWINGER_NORMAL = 2.5     # a stock whose normal move is at least this % is a "sw
 BIGGER_THAN_USUAL = 1.8  # swinger tag threshold
 LIST_SIZE = 25
 NEWS_PER_SYMBOL = 3
+PREMARKET_START_MIN = 150  # pre-market scans begin this many minutes before the open (7:00am ET)
+GAP_MIN_PCT = 1.0          # pre-market gap lists need at least this % vs yesterday's close...
+GAP_MIN_RATIO = 1.5        # ...and this many times the stock's normal daily move
+THIN_SHARES = 2000         # under this many IEX shares traded pre-market, flag the price as thin
 
 
 # ---------- universe ----------
@@ -272,6 +277,79 @@ def slot_label(now_et, close=None):
     return "Close" if now_et >= close else "Intraday"
 
 
+# ---------- pre-market gaps ----------
+
+def fetch_premarket_bars(symbols, start_et, today):
+    """Pre-market volume, high and low per symbol from 1-minute IEX bars since 4am ET."""
+    out = {}
+    start = start_et.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for part in chunks(symbols, 50):
+        token = None
+        while True:
+            params = {"symbols": ",".join(part), "timeframe": "1Min", "start": start, "feed": "iex",
+                      "limit": 10000}
+            if token:
+                params["page_token"] = token
+            res = get(DATA_URL, "/v2/stocks/bars", params)
+            for sym, bars in (res.get("bars") or {}).items():
+                for b in bars:
+                    o = out.setdefault(sym, {"volume": 0, "high": b["h"], "low": b["l"]})
+                    o["volume"] += b["v"]
+                    o["high"], o["low"] = max(o["high"], b["h"]), min(o["low"], b["l"])
+            token = res.get("next_page_token")
+            if not token:
+                break
+    return out
+
+
+def build_gaps(snaps, closes, names, groups, open_et):
+    """Names whose latest pre-market trade is well away from yesterday's close."""
+    today = open_et.date().isoformat()
+    rows = []
+    for sym, s in snaps.items():
+        try:
+            lt = s["latestTrade"]
+            when = datetime.fromisoformat(lt["t"].replace("Z", "+00:00")).astimezone(ET)
+            # Before the open the daily bar is usually yesterday's; use whichever bar is not today's.
+            bar = s["dailyBar"] if s["dailyBar"]["t"][:10] < today else s["prevDailyBar"]
+            prior = bar["c"]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if when.date() != open_et.date() or when >= open_et or not prior:
+            continue  # no pre-market trade yet today
+        nm = normal_move(closes.get(sym, []))
+        gap = (lt["p"] - prior) / prior * 100
+        ratio = abs(gap) / nm if nm else None
+        if abs(gap) < GAP_MIN_PCT or not ratio or ratio < GAP_MIN_RATIO:
+            continue
+        rows.append({"symbol": sym, "name": names.get(sym, ""), "group": groups.get(sym, ""),
+                     "price": round(lt["p"], 4), "prev": prior, "pct": round(gap, 2),
+                     "normal": round(nm, 2), "ratio": round(ratio, 1), "last_trade": when.isoformat(timespec="minutes")})
+    rows.sort(key=lambda r: -r["ratio"])
+    return rows[:LIST_SIZE]
+
+
+def run_premarket(symbols, names, groups, now_et, open_et):
+    snaps = fetch_snapshots(symbols)
+    closes, _ = fetch_daily_history(symbols, open_et.date().isoformat())
+    gaps = build_gaps(snaps, closes, names, groups, open_et)
+    pm = fetch_premarket_bars([r["symbol"] for r in gaps], now_et.replace(hour=4, minute=0, second=0, microsecond=0),
+                              open_et.date().isoformat()) if gaps else {}
+    news = fetch_news([r["symbol"] for r in gaps]) if gaps else {}
+    for r in gaps:
+        b = pm.get(r["symbol"], {})
+        r["pm_volume"], r["pm_high"], r["pm_low"] = b.get("volume", 0), b.get("high"), b.get("low")
+        r["thin"] = r["pm_volume"] < THIN_SHARES
+        r["news"] = news.get(r["symbol"], [])
+    payload = {"generated": now_et.isoformat(timespec="minutes"), "date": open_et.date().isoformat(),
+               "open": open_et.isoformat(timespec="minutes"),
+               "settings": {"min_pct": GAP_MIN_PCT, "min_ratio": GAP_MIN_RATIO, "thin_shares": THIN_SHARES},
+               "gaps": gaps, "scanned": len(snaps)}
+    with open(PREMARKET_OUT, "w") as f:
+        json.dump(payload, f, separators=(",", ":"))
+    print(f"Wrote {PREMARKET_OUT}: {len(gaps)} gaps from {len(snaps)} snapshots.")
+
+
 # ---------- demo data ----------
 
 def demo_rows(names, groups):
@@ -337,6 +415,10 @@ def main():
     else:
         hours = market_hours(today)
         close = hours[1] if hours else None
+        pre_window = hours and hours[0] - timedelta(minutes=PREMARKET_START_MIN) <= now_et < hours[0]
+        if pre_window or (force and hours and now_et < hours[0]):
+            run_premarket(symbols, names, groups, now_et, hours[0])
+            return
         # Runs every 15 minutes; only scan from the open until shortly after the close.
         if not force and not (hours and hours[0] <= now_et <= hours[1] + timedelta(minutes=20)):
             print("Market not open; leaving the page as it is.")

@@ -2,10 +2,10 @@ name: Market digest
 
 on:
   schedule:
-    # Every 15 minutes, 13:00-21:59 UTC on weekdays. That covers market hours in
-    # both EDT and EST; digest.py exits early outside 9:30am-4:20pm ET and on holidays.
+    # Every 15 minutes, 11:00-21:59 UTC on weekdays. That covers pre-market (from 7am ET) and market hours in
+    # both EDT and EST; digest.py exits early outside 7am-4:20pm ET and on holidays.
     # GitHub may start scheduled runs a few minutes late at busy times.
-    - cron: "*/15 13-21 * * 1-5"
+    - cron: "*/15 11-21 * * 1-5"
   workflow_dispatch:
     inputs:
       force:
@@ -39,7 +39,7 @@ jobs:
         run: |
           git config user.name "market-digest bot"
           git config user.email "actions@users.noreply.github.com"
-          for f in docs/data.json docs/baseline.json; do [ -f "$f" ] && git add "$f"; done
+          for f in docs/data.json docs/baseline.json docs/premarket.json; do [ -f "$f" ] && git add "$f"; done
           git diff --cached --quiet && exit 0
           git commit -m "Digest update $(date -u +%Y-%m-%dT%H:%MZ)"
           git pull --rebase origin main && git push
