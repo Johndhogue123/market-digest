@@ -5,7 +5,11 @@ workers_dev = true
 
 [triggers]
 # Weekdays, every 5 minutes, 11:00-22:59 UTC (covers 7am-5pm ET in EDT and EST).
-crons = ["*/5 11-22 * * 1-5"]
+# Cloudflare numbers days 1-7 from Sunday, so 1-5 would mean Sun-Thu; use names.
+crons = ["*/5 11-22 * * MON-FRI"]
+
+[observability]
+enabled = true
 
 [vars]
 GITHUB_REPO = "Johndhogue123/market-digest"
