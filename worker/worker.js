@@ -138,6 +138,7 @@ async function build(env) {
       ratio: normal ? round(Math.abs(pct) / normal, 1) : null,
       volume: day.v, rvol: avgVol ? round(day.v / (avgVol * frac), 1) : null,
       read: fadeRead(price, day.h, day.l, prev),
+      earn: (base.earnings || {})[sym] || null,
     });
   }
   // Before the first trade of the day, the page keeps showing the last 15-minute digest.
