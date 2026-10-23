@@ -911,12 +911,15 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 
   // ---- loading: near-live worker when set up (docs/live.json), else the 15-minute digest ----
   var liveUrl = null;
-  function getJSON(url) {
-    return fetch(url, { cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); });
+  function getJSON(url, ms) {
+    var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, ms || 20000);
+    return fetch(url, { cache: "no-store", signal: ctl.signal })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .finally(function () { clearTimeout(timer); });
   }
   function load(first) {
     var digest = function () { return getJSON("data.json"); };
-    (liveUrl ? getJSON(liveUrl).then(function (d) { if (!d.live) throw new Error("closed"); return d; }).catch(digest) : digest())
+    (liveUrl ? getJSON(liveUrl, 8000).then(function (d) { if (!d.live) throw new Error("closed"); return d; }).catch(digest) : digest())
       .then(boot).catch(function () {
         if (!first) return;
         $("asof").textContent = "No data yet";
