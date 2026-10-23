@@ -107,6 +107,11 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .pill.warn { color: var(--accent); border-color: var(--accent); }
 .badge { display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 12px; line-height: 18px; }
 .badge[hidden] { display: none; }
+button.pill.jump { font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+button.pill.jump:hover, button.pill.jump:focus-visible { filter: brightness(1.15); outline: 1px solid var(--accent); }
+.pill.jump .up { color: var(--up); } .pill.jump .down { color: var(--down); }
+@keyframes pulse-new { 0%, 60% { background: var(--accent-bg); box-shadow: inset 0 0 0 2px var(--accent); } 100% { box-shadow: inset 0 0 0 1px var(--accent); } }
+.row.is-new.pulse { animation: pulse-new 2.4s ease-out; }
 .peek { grid-column: 1 / -1; font-size: 13px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .peek.none { color: var(--muted); font-style: italic; }
 .peek time { color: var(--muted); font-family: var(--font-num); font-size: 12px; margin-left: 6px; }
@@ -260,7 +265,7 @@ footer { line-height: 1.5; margin-top: 8px; }
 @keyframes flash-down { from { background: var(--down-bg); box-shadow: inset 0 0 0 1px var(--down); } to { box-shadow: inset 0 0 0 1px transparent; } }
 .row.flash-up { animation: flash-up 1.6s ease-out; }
 .row.flash-down { animation: flash-down 1.6s ease-out; }
-@media (prefers-reduced-motion: reduce) { .row.flash-up, .row.flash-down { animation: none; } .glance { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .row.flash-up, .row.flash-down, .row.is-new.pulse { animation: none; } .glance { transition: none; } }
 .chgwrap { display: inline-flex; align-items: center; gap: 10px; justify-self: end; }
 .spark { display: block; width: 72px; height: 24px; overflow: visible; }
 .spark path { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
@@ -747,7 +752,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     renderEarnings();
     $("glance").innerHTML = '<b>Market Digest</b><span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
       idx.map(function (r) { return '<span class="g-idx"><span>' + esc(r.symbol) + '</span><span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>'; }).join("") +
-      (nNew ? '<span class="pill warn">' + nNew + ' new unusual</span>' : "") +
+      (nNew ? newPill(false) : "") +
       '<span class="g-time">' + esc($("asof").textContent) + '</span>';
   }
   (function () {
@@ -760,8 +765,26 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var ses = session(), live = data && data.live;
     $("status").innerHTML = '<span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
       '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>' +
-      (nNew ? '<span class="pill warn">' + nNew + ' new unusual</span>' : "");
+      (nNew ? newPill(true) : "");
   }
+  // Clickable chip: names the newly added stocks with their % change, click jumps to them.
+  function newPill(withNames) {
+    var fresh = (data.unusual || []).filter(function (r) { return isNew(r.symbol); });
+    var names = withNames ? fresh.slice(0, 3).map(function (r) { return esc(r.symbol) + ' <span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span>'; }).join(" · ") + (fresh.length > 3 ? " +" + (fresh.length - 3) : "") : "";
+    return '<button type="button" class="pill warn jump" data-jump="new" title="Jump to the newly added unusual moves">' + fresh.length + ' new unusual' + (names ? ': ' + names : '') + ' ↓</button>';
+  }
+  function jumpToNew() {
+    var fresh = (data.unusual || []).filter(function (r) { return isNew(r.symbol); }); if (!fresh.length) return;
+    $("cols").setAttribute("data-active", "unusual");
+    document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", x.getAttribute("data-tab") === "unusual"); });
+    var idx = (data.unusual || []).indexOf(fresh[fresh.length - 1]);
+    if (idx >= TOP_N) showAll.unusual = true;
+    render();
+    var rows = document.querySelectorAll("#list-unusual .row.is-new");
+    rows.forEach(function (li) { li.classList.remove("pulse"); void li.offsetWidth; li.classList.add("pulse"); });
+    if (rows[0]) rows[0].scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  document.addEventListener("click", function (e) { if (e.target.closest("[data-jump=new]")) jumpToNew(); });
   // Benchmarks stay first; the rest go biggest move first.
   var BENCH = ["SPY", "QQQ", "IWM", "DIA"];
   function marketOrder(m) {
