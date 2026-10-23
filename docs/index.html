@@ -4,8 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Market Digest</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap">
+<link rel="preload" href="fonts/PublicSans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/IBMPlexMono-400.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(fonts/IBMPlexMono-500.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url(fonts/IBMPlexMono-600.woff2) format("woff2"); }
+@font-face { font-family: "Public Sans"; font-style: normal; font-weight: 400 700; font-display: swap; src: url(fonts/PublicSans.woff2) format("woff2"); }
 :root {
   --bg: #0d1117; --surface: #151b23; --surface-2: #1c2430; --line: #263041;
   --fg: #e8ecf2; --muted: #8a96a8; --accent: #f2b84b; --accent-ink: #1a1303;
@@ -275,6 +279,36 @@ footer { line-height: 1.5; margin-top: 8px; }
 .newsbox { min-width: 0; }
 @media (min-width: 1100px) { .side { grid-template-columns: minmax(0,1fr) minmax(0,1fr); } }
 .nitem time { margin-left: 4px; }
+/* ---- Round 3: heat chips, move-size bar, density toggle, bigger watchlist, flag icons, skeleton rows ---- */
+.chip { background: color-mix(in srgb, var(--chipc, transparent) var(--heat, 0%), var(--surface)); }
+.ratio { display: inline-flex; align-items: center; gap: 8px; }
+.mv { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.mv b { display: block; height: 100%; border-radius: 2px; background: var(--muted); }
+.mv b.up { background: var(--up); } .mv b.down { background: var(--down); }
+.ico { width: 11px; height: 11px; flex: none; vertical-align: -1px; margin-right: 3px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tag { display: inline-flex; align-items: center; }
+.wl .row .head { padding: 14px 16px; }
+.wl .row .tk { font-size: 20px; }
+.wl .row .chg { font-size: 17px; padding: 5px 12px; min-width: 96px; }
+.wl .row .spark { width: 88px; height: 28px; }
+.skel { min-height: 96px; border-left-color: var(--line); background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%) 0 0 / 300% 100%; animation: shimmer 1.4s linear infinite; }
+.chip.skel { min-height: 62px; }
+@keyframes shimmer { to { background-position: -300% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+/* Compact: same data, tighter spacing, for a crowded second monitor */
+body.compact .head { padding: 6px 10px; gap: 2px 10px; }
+body.compact .row { border-radius: 9px; }
+body.compact .list { gap: 5px; }
+body.compact .tk { font-size: 15px; }
+body.compact .chg { font-size: 13px; padding: 2px 8px; min-width: 72px; }
+body.compact .cols .list > .row:first-child .tk { font-size: 17px; }
+body.compact .cols .list > .row:first-child .chg { font-size: 14px; padding: 3px 9px; min-width: 76px; }
+body.compact .cols .list > .row:first-child .head, body.compact .wl .row .head { padding: 6px 10px; }
+body.compact .wl .row .tk { font-size: 16px; } body.compact .wl .row .chg { font-size: 13px; padding: 2px 8px; min-width: 72px; }
+body.compact .spark, body.compact .cols .list > .row:first-child .spark, body.compact .wl .row .spark { width: 56px; height: 18px; }
+body.compact .peek { padding-top: 3px; margin-top: 0; border-top: 0; font-size: 12.5px; }
+body.compact .trade { padding: 0 10px; }
+body.compact .cols { gap: 14px; }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
@@ -285,6 +319,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   <header class="bar-top">
     <div><h1>Market Digest</h1><p class="sub" id="asof">Loading</p><div class="status" id="status"></div></div>
     <div class="top-btns">
+      <button class="alerts" id="density" title="Tighter spacing for a crowded screen">Compact</button>
       <button class="alerts" id="theme" title="Switch between light and dark">Theme</button>
       <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
     </div>
@@ -307,7 +342,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   <h2>Market</h2>
   <div class="breadth" id="breadth" role="img"></div>
   <p class="explain" id="breadthText"></p>
-  <div class="strip" id="market"></div>
+  <div class="strip" id="market"><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div></div>
   </section>
 
   <section id="gapbox" hidden>
@@ -323,8 +358,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     <button role="tab" data-tab="swingers" aria-selected="false">Big swingers</button>
   </div>
   <div class="cols" id="cols" data-active="unusual">
-    <section class="col" data-col="unusual"><h3>Unusual moves</h3><p class="explain" id="explain-unusual"></p><ul class="list" id="list-unusual"></ul></section>
-    <section class="col" data-col="swingers"><h3>Big swingers</h3><p class="explain" id="explain-swingers"></p><ul class="list" id="list-swingers"></ul></section>
+    <section class="col" data-col="unusual"><h3>Unusual moves</h3><p class="explain" id="explain-unusual"></p><ul class="list" id="list-unusual"><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li></ul></section>
+    <section class="col" data-col="swingers"><h3>Big swingers</h3><p class="explain" id="explain-swingers"></p><ul class="list" id="list-swingers"><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li></ul></section>
   </div>
 
 
@@ -446,11 +481,19 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + (prev > 0 ? '<path class="ref" d="M0 ' + y(prev) + 'H' + W + '"/>' : "") +
       '<path class="' + c + '" d="' + d + '"/><circle class="' + c + '" cx="' + W + '" cy="' + y(a[a.length - 1]) + '" r="2.4"/></svg>';
   }
+  var ICO = {
+    "new": '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+    "moon": '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+    "cal": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'
+  };
+  function ico(n) { return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' + ICO[n] + '</svg>'; }
+  // Move size as a bar: full width = 10x the stock's normal swing.
+  function mvbar(ratio, c) { return ratio != null ? '<span class="mv" aria-hidden="true"><b class="' + c + '" style="width:' + Math.min(100, ratio * 10) + '%"></b></span>' : ""; }
   function row(r, tab) {
     var fresh = tab === "unusual" && isNew(r.symbol);
-    var tags = fresh ? '<span class="tag new">New</span>' : "";
-    if (r.ah != null && Math.abs(r.ah) >= 0.3) tags += '<span class="tag dim" title="Move since the 4pm close, thin IEX trading">AH <span class="' + cls(r.ah) + '">' + pct(r.ah) + '</span></span>';
-    if (r.earn) tags += '<span class="tag earn">' + esc(r.earn) + '</span>';
+    var tags = fresh ? '<span class="tag new" title="Joined Unusual moves in the last 15 minutes">' + ico("new") + 'New</span>' : "";
+    if (r.ah != null && Math.abs(r.ah) >= 0.3) tags += '<span class="tag dim" title="Move since the 4pm close, thin IEX trading">' + ico("moon") + 'AH <span class="' + cls(r.ah) + '">' + pct(r.ah) + '</span></span>';
+    if (r.earn) tags += '<span class="tag earn" title="Earnings date">' + ico("cal") + esc(r.earn) + '</span>';
     tags += trendTags(r.streak, r.chg3, r.near52, data && data.settings && data.settings.streak_min);
     if (r.read && r.read.kind === "fade") tags += '<span class="tag solid">Fading</span>';
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
@@ -461,7 +504,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<span class="chgwrap">' + spark(r.symbol, r.prev, r.pct) + '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' + ranges(r.price, r.low, r.high, r.w52) +
       (r.rvol != null ? '<span class="vol' + (r.rvol >= 2 ? ' hot' : '') + '">vol ' + r.rvol.toFixed(1) + '×</span>' : '') + '</span>' +
-      '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
+      '<span class="ratio">' + mvbar(r.ratio, cls(r.pct)) + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
       peek(r) +
       '</button><a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">Trade ↗</a></div><div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? detail(r) : '') + '</div></li>';
   }
@@ -475,7 +518,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + ' (was ' + price(r.prev) + ')</span>' +
       '<span class="vol">' + Math.round(r.pm_volume).toLocaleString() + ' sh</span></span>' +
-      '<span class="ratio">' + r.ratio.toFixed(1) + '× normal</span>' + peek(r) + '</button>' +
+      '<span class="ratio">' + mvbar(r.ratio, cls(r.pct)) + r.ratio.toFixed(1) + '× normal</span>' + peek(r) + '</button>' +
       '<a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener">Trade ↗</a></div></li>';
   }
   function renderGaps() {
@@ -506,7 +549,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
         '<span class="chgwrap">' + spark(sym, null, v[2]) + '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span></span>' +
         '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + '<span class="nm">' + price(v[1]) + '</span>' + ranges(v[1], v[6], v[5], v[7]) + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
-        '<span class="ratio">' + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
+        '<span class="ratio">' + mvbar(v[3], cls(v[2])) + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
         '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
         '<button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
     }).join("") : '<li class="empty">Add tickers above to pin them here.</li>';
@@ -642,7 +685,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     $("breadth").setAttribute("aria-label", b.up + " up, " + b.down + " down");
     $("breadthText").textContent = Math.round(upW) + "% of stocks up (" + b.up + " up, " + b.down + " down of " + b.total + ").";
     $("market").innerHTML = d.market.map(function (r) {
-      return '<a class="chip" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
+      var heat = Math.min(32, Math.round(Math.abs(r.pct) / 4 * 32));
+      return '<a class="chip" style="--heat:' + heat + '%;--chipc:var(--' + cls(r.pct) + ')" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
         '<div class="s">' + esc(r.symbol) + '</div><div class="n">' + esc(r.name) + '</div>' +
         '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div>' +
         (r.ratio != null ? '<div class="x">' + r.ratio.toFixed(1) + '× usual</div>' : '') + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + '</a>';
@@ -662,6 +706,16 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", x === b); });
     render();
   });
+
+  // ---- Density: Comfortable or Compact, remembered ----
+  var densBtn = $("density");
+  function paintDensity() { var c = document.body.classList.contains("compact"); densBtn.textContent = c ? "Comfortable" : "Compact"; }
+  if (store("md-density") === "compact") document.body.classList.add("compact");
+  densBtn.addEventListener("click", function () {
+    document.body.classList.toggle("compact");
+    store("md-density", document.body.classList.contains("compact") ? "compact" : "comfortable"); paintDensity();
+  });
+  paintDensity();
 
   // ---- Theme: follows the system until the toggle is used, then remembered ----
   var themeBtn = $("theme"), themeMq = window.matchMedia("(prefers-color-scheme: light)");
@@ -766,6 +820,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
         if (!first) return;
         $("asof").textContent = "No data yet";
         $("list-unusual").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
+        $("list-swingers").innerHTML = ""; $("market").innerHTML = "";
       });
   }
   getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; if (data) renderWatch(); }).catch(function () {});
