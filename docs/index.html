@@ -180,7 +180,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       (r.rvol != null ? ' Volume is running <b>' + r.rvol.toFixed(1) + '×</b> a normal day\'s pace.' : '') + '</p>' +
       (news ? '<ul class="news">' + news + '</ul>' : '<p class="explain">No headlines in the last day and a half.</p>') +
       '<div class="links"><a href="https://robinhood.com/stocks/' + t + '" target="_blank" rel="noopener">Robinhood</a>' +
-      '<a href="https://www.google.com/finance/quote/' + t + '" target="_blank" rel="noopener">Google Finance</a>' +
+      '<a href="https://www.google.com/search?q=' + t + '+stock" target="_blank" rel="noopener">Google quote</a>' +
       '<a href="https://finance.yahoo.com/quote/' + t + '/news" target="_blank" rel="noopener">Yahoo news</a></div>';
   }
 
