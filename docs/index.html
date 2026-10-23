@@ -82,6 +82,19 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .newsmore { font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 0; padding: 4px 0 6px; cursor: pointer; }
 .top-btns { display: flex; gap: 8px; }
 .alerts[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.mini { position: relative; height: 4px; border-radius: 2px; background: var(--line); min-width: 56px; align-self: center; }
+.mini i { position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%; background: var(--fg); transform: translate(-50%,-50%); }
+.chip .mini { display: block; margin-top: 6px; }
+.chip .x { color: var(--muted); font-size: 11px; font-family: var(--font-num); }
+.status { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.pill { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pill.on { color: var(--up); border-color: var(--up); }
+.pill.warn { color: var(--accent); border-color: var(--accent); }
+.badge { display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 12px; line-height: 18px; }
+.badge[hidden] { display: none; }
+.peek { grid-column: 1 / -1; font-size: 13px; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.peek.none { color: var(--muted); font-style: italic; }
+.peek time { color: var(--muted); font-family: var(--font-num); font-size: 12px; margin-left: 6px; }
 .ratio { font-family: var(--font-num); font-size: 12px; color: var(--muted); justify-self: end; white-space: nowrap; }
 .detail { border-top: 1px solid var(--line); padding: 12px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-2); }
 .detail[hidden] { display: none; }
@@ -123,7 +136,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 <body>
 <main class="wrap">
   <header class="bar-top">
-    <div><h1>Market Digest</h1><p class="sub" id="asof">Loading</p></div>
+    <div><h1>Market Digest</h1><p class="sub" id="asof">Loading</p><div class="status" id="status"></div></div>
     <div class="top-btns">
       <button class="alerts" id="theme" title="Switch between light and dark">Theme</button>
       <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
@@ -152,7 +165,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   </section>
 
   <div class="tabs" role="tablist">
-    <button role="tab" data-tab="unusual" aria-selected="true">Unusual moves</button>
+    <button role="tab" data-tab="unusual" aria-selected="true">Unusual moves<span class="badge" id="newBadge" hidden></span></button>
     <button role="tab" data-tab="swingers" aria-selected="false">Big swingers</button>
   </div>
   <div class="cols" id="cols" data-active="unusual">
@@ -210,6 +223,30 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<a href="https://finance.yahoo.com/quote/' + t + '/news" target="_blank" rel="noopener">Yahoo news</a></div>';
   }
 
+  // Latest headline shown on the collapsed row, so the "why" is visible without opening it.
+  function peek(r) {
+    var n = (r.news || [])[0];
+    return n ? '<span class="peek" title="' + esc(n.headline) + '">' + esc(n.headline) + '<time>' + esc(ago(n.time)) + '</time></span>'
+             : '<span class="peek none">No headline in the last day and a half</span>';
+  }
+  function mini(price, low, high) {
+    if (!(high > low)) return "";
+    return '<span class="mini" title="Where it trades in today\'s range: low ' + esc(price_(low)) + ', high ' + esc(price_(high)) + '"><i style="left:' + Math.max(0, Math.min(100, (price - low) / (high - low) * 100)) + '%"></i></span>';
+  }
+  function price_(p) { return price(p); }
+  function newsFor(sym) {
+    var best = null;
+    ((news && news.news) || []).forEach(function (n) { if (n.s.indexOf(sym) >= 0 && (!best || n.t > best.t)) best = n; });
+    return best;
+  }
+  // Pre-market 4:00 to 9:30am ET, open to 4pm, otherwise closed (weekends included; holidays are not known here).
+  function session() {
+    var p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "numeric", hour12: false }).formatToParts(new Date()), o = {};
+    p.forEach(function (x) { o[x.type] = x.value; });
+    var m = (+o.hour % 24) * 60 + +o.minute;
+    if (o.weekday === "Sat" || o.weekday === "Sun") return "Closed";
+    return m >= 570 && m < 960 ? "Open" : m >= 240 && m < 570 ? "Pre-market" : "Closed";
+  }
   function rh(sym) { return "https://robinhood.com/stocks/" + encodeURIComponent(sym); }
 
   function row(r, tab) {
@@ -218,14 +255,14 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     if (r.earn) tags += '<span class="tag earn">' + esc(r.earn) + '</span>';
     if (r.read && r.read.kind === "fade") tags += '<span class="tag solid">Fading</span>';
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
-    if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "" : "dim") + '">' + esc(r.usual) + '</span>';
+    if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "solid" : "dim") + '">' + esc(r.usual) + '</span><span class="vol">usual \u00b1' + (r.normal != null ? r.normal.toFixed(1) : "?") + '%</span>';
     var isOpen = !!open[tab + ":" + r.symbol];
     return '<li class="row' + (fresh ? ' is-new' : '') + '" data-s="' + esc(tab + ":" + r.symbol) + '"><div class="top"><button class="head" aria-expanded="' + isOpen + '">' +
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' +
       (r.rvol != null ? '<span class="vol' + (r.rvol >= 2 ? ' hot' : '') + '">vol ' + r.rvol.toFixed(1) + '×</span>' : '') + '</span>' +
-      '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
+      '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' + peek(r) +
       '</button><a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">Trade ↗</a></div><div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? detail(r) : '') + '</div></li>';
   }
 
@@ -236,9 +273,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     return '<li class="row"><div class="top"><button class="head" aria-expanded="false">' +
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
-      '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' +
+      '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + ' (was ' + price(r.prev) + ')</span>' +
       '<span class="vol">' + Math.round(r.pm_volume).toLocaleString() + ' sh</span></span>' +
-      '<span class="ratio">' + r.ratio.toFixed(1) + '× normal</span></button>' +
+      '<span class="ratio">' + r.ratio.toFixed(1) + '× normal</span>' + peek(r) + '</button>' +
       '<a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener">Trade ↗</a></div></li>';
   }
   function renderGaps() {
@@ -248,7 +285,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     box.hidden = false;
     var s = gaps.settings, open = new Date(gaps.open), after = Date.now() >= open;
     $("gapExplain").textContent = (after ? "Final read before the open, " : "As of ") + new Date(gaps.generated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) +
-      ". Latest pre-market price against yesterday's close, at least " + s.min_pct + "% and " + s.min_ratio + "× normal. IEX sees only a slice of pre-market trading, so thin names can print odd prices.";
+      ". Vs yesterday's close, at least " + s.min_pct + "% and " + s.min_ratio + "× normal. Thin trading can print odd prices.";
     $("gapList").innerHTML = gaps.gaps.length ? gaps.gaps.map(gapRow).join("") : '<li class="empty">No gaps yet.</li>';
   }
   function loadGaps() {
@@ -257,15 +294,19 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 
   // ---- watchlist: pinned at the top, stored in this browser ----
   var watch = store("md-watch") || [];
+  function wpeek(sym) {
+    var n = newsFor(sym);
+    return n ? '<span class="peek" title="' + esc(n.h) + '">' + esc(n.h) + '<time>' + esc(ago(n.t)) + '</time></span>' : "";
+  }
   function renderWatch() {
     var q = (data && data.quotes) || {};
     $("wlList").innerHTML = watch.length ? watch.map(function (sym) {
       var v = q[sym];
-      if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (data ? 'not in S&P 500 / ETF list, or no trades yet' : 'loading') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
+      if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
       return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
         '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span>' +
-        '<span class="meta"><span class="nm">' + price(v[1]) + '</span>' + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
-        '<span class="ratio">' + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span></span>' +
+        '<span class="meta"><span class="nm">' + price(v[1]) + '</span>' + mini(v[1], v[6], v[5]) + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
+        '<span class="ratio">' + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
         '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
         '<button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
     }).join("") : '<li class="empty">Add tickers above to pin them here.</li>';
@@ -329,21 +370,31 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   }
   $("newsMore").addEventListener("click", function () { newsAll = !newsAll; renderNews(); });
   function loadNews() {
-    getJSON("news.json").then(function (n) { news = n; renderNews(); }).catch(function () {});
+    getJSON("news.json").then(function (n) { news = n; renderNews(); if (data) renderWatch(); }).catch(function () {});
   }
 
   function render() {
     renderWatch();
     renderNews();
+    var nNew = (data.unusual || []).filter(function (r) { return isNew(r.symbol); }).length;
+    $("newBadge").hidden = !nNew; $("newBadge").textContent = nNew;
+    document.title = (nNew ? "(" + nNew + ") " : "") + "Market Digest";
+    paintStatus(nNew);
     var s = data.settings;
-    $("explain-unusual").textContent = "Moving at least " + s.unusual_ratio + "× their normal daily swing (average of the last " + s.lookback + " days).";
-    $("explain-swingers").textContent = "Stocks that usually move " + s.swinger_normal + "% or more a day, ranked by today's move.";
+    $("explain-unusual").textContent = "At least " + s.unusual_ratio + "× their normal daily swing.";
+    $("explain-swingers").textContent = "Usually move " + s.swinger_normal + "%+ a day, biggest move first.";
     ["unusual", "swingers"].forEach(function (t) {
       var rows = data[t];
       $("list-" + t).innerHTML = rows.length ? rows.map(function (r) { return row(r, t); }).join("") : '<li class="empty">Nothing unusual right now.</li>';
     });
   }
 
+  function paintStatus(nNew) {
+    var ses = session(), live = data && data.live;
+    $("status").innerHTML = '<span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" ? "warn" : "") + '">' + ses + '</span>' +
+      '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>' +
+      (nNew ? '<span class="pill warn">' + nNew + ' new unusual</span>' : "");
+  }
   function boot(d) {
     data = d;
     notify(track(d));
@@ -355,11 +406,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var b = d.breadth, upW = b.total ? b.up / b.total * 100 : 0;
     $("breadth").innerHTML = '<i style="width:' + upW + '%;background:var(--up)"></i><i style="width:' + (100 - upW) + '%;background:var(--down)"></i>';
     $("breadth").setAttribute("aria-label", b.up + " up, " + b.down + " down");
-    $("breadthText").textContent = b.up + " up, " + b.down + " down across " + b.total + " stocks and ETFs.";
+    $("breadthText").textContent = Math.round(upW) + "% of stocks up (" + b.up + " up, " + b.down + " down of " + b.total + ").";
     $("market").innerHTML = d.market.map(function (r) {
       return '<a class="chip" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
         '<div class="s">' + esc(r.symbol) + '</div><div class="n">' + esc(r.name) + '</div>' +
-        '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div></a>';
+        '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div>' +
+        (r.ratio != null ? '<div class="x">' + r.ratio.toFixed(1) + '× usual</div>' : '') + mini(r.price, r.low, r.high) + '</a>';
     }).join("");
     render();
   }
@@ -480,7 +532,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
         $("list-unusual").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
       });
   }
-  getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; }).catch(function () {});
+  getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; if (data) renderWatch(); }).catch(function () {});
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
     load(true);
     loadGaps();

@@ -162,6 +162,6 @@ async function build(env) {
     breadth: { up, down: rows.length - up, total: rows.length },
     market, unusual, swingers, settings: s,
     // Every scanned symbol, for the page's watchlist: [name, price, pct, ratio, rvol]
-    quotes: Object.fromEntries(rows.map((r) => [r.symbol, [r.name, r.price, r.pct, r.ratio, r.rvol]])),
+    quotes: Object.fromEntries(rows.map((r) => [r.symbol, [r.name, r.price, r.pct, r.ratio, r.rvol, r.high, r.low]])),
   };
 }
