@@ -918,14 +918,21 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       .finally(function () { clearTimeout(timer); });
   }
   function load(first) {
-    var digest = function () { return getJSON("data.json"); };
-    (liveUrl ? getJSON(liveUrl, 8000).then(function (d) { if (!d.live) throw new Error("closed"); return d; }).catch(digest) : digest())
-      .then(boot).catch(function () {
-        if (!first) return;
-        $("asof").textContent = "No data yet";
-        $("list-unusual").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
-        $("list-swingers").innerHTML = ""; $("market").innerHTML = "";
-      });
+    var failed = function () {
+      if (!first || data) return;
+      $("asof").textContent = "No data yet";
+      $("list-unusual").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
+      $("list-swingers").innerHTML = ""; $("market").innerHTML = "";
+    };
+    var gotLive = false;
+    var digest = function () { return getJSON("data.json").then(function (d) { if (!gotLive) boot(d); }); };
+    if (!liveUrl) { digest().catch(failed); return; }
+    // First paint comes from the static digest; the live worker's numbers replace it whenever they arrive.
+    if (first) digest().catch(failed);
+    getJSON(liveUrl, 15000).then(function (d) {
+      if (!d.live) throw new Error("closed");
+      gotLive = true; boot(d);
+    }).catch(function () { if (!first) return digest(); }).catch(failed);
   }
   getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; if (data) renderWatch(); }).catch(function () {});
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
