@@ -31,6 +31,8 @@ BASELINE_OUT = os.path.join(ROOT, "docs", "baseline.json")
 NEWS_OUT = os.path.join(ROOT, "docs", "news.json")
 # Today's 5-minute closes for the symbols on the page, drawn as little sparklines next to each % change.
 SPARK_OUT = os.path.join(ROOT, "docs", "spark.json")
+# S&P names reporting today and over the next few days, for the page's Earnings strip.
+EARNINGS_OUT = os.path.join(ROOT, "docs", "earnings.json")
 DATA_URL = "https://data.alpaca.markets"
 TRADING_URL = "https://paper-api.alpaca.markets"
 ET = ZoneInfo("America/New_York")
@@ -221,6 +223,32 @@ def fetch_earnings(symbols, today):
         elif date < today and hour == "bmo" and sym not in tags:
             tags[sym] = "Reported " + date[5:]
     return tags
+
+
+def write_earnings_strip(names, volumes, today, now_et):
+    """Companies reporting today or on the next day with a report, biggest (by average volume) first.
+    Best effort: no key or a failed lookup leaves the old file."""
+    key = os.environ.get("FINNHUB_KEY")
+    if not key:
+        return
+    end = (datetime.fromisoformat(today) + timedelta(days=5)).date().isoformat()
+    url = "https://finnhub.io/api/v1/calendar/earnings?" + urllib.parse.urlencode({"from": today, "to": end, "token": key})
+    try:
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            events = json.load(resp).get("earningsCalendar") or []
+    except Exception as e:  # noqa: BLE001
+        print(f"Earnings strip skipped: {e}")
+        return
+    items = [e for e in events if e.get("symbol") in names and e.get("date")]
+    dates = sorted({e["date"] for e in items})[:2]  # today (if any) and the next reporting day
+    size = lambda s: avg_volume(volumes.get(s, [])) or 0
+    out = []
+    for d in dates:
+        day = sorted((e for e in items if e["date"] == d), key=lambda e: -size(e["symbol"]))[:14]
+        out += [{"s": e["symbol"], "n": names[e["symbol"]], "d": d, "h": e.get("hour") or ""} for e in day]
+    with open(EARNINGS_OUT, "w") as f:
+        json.dump({"generated": now_et.isoformat(timespec="minutes"), "items": out}, f, separators=(",", ":"))
+    print(f"Wrote {EARNINGS_OUT}: {len(out)} reports.")
 
 
 # ---------- analysis ----------
@@ -597,6 +625,7 @@ def main():
         earnings = fetch_earnings(symbols, today)
         write_baseline(names, groups, etfs, closes, volumes, ranges, today, earnings)
         write_news(symbols, now_et)
+        write_earnings_strip(names, volumes, today, now_et)
         rows = build_rows(snaps, closes, volumes, ranges, names, groups, today, session_fraction(now_et), earnings, close)
         if not rows:
             print("No trades yet today; leaving the page as it is.")

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Market Digest</title>
+<link rel="icon" id="fav" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27%238a96a8%27/%3E%3C/svg%3E">
 <link rel="preload" href="fonts/PublicSans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/IBMPlexMono-400.woff2) format("woff2"); }
@@ -309,6 +310,22 @@ body.compact .spark, body.compact .cols .list > .row:first-child .spark, body.co
 body.compact .peek { padding-top: 3px; margin-top: 0; border-top: 0; font-size: 12.5px; }
 body.compact .trade { padding: 0 10px; }
 body.compact .cols { gap: 14px; }
+/* ---- Round 4: earnings strip, volume spike tag, since-you-looked badge, TV mode ---- */
+.earnbox { order: 3; }
+.alerts[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.elist { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.elist .ed { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+.elist .ed:not(:first-child) { margin-left: 10px; }
+.ec { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border-radius: 9px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); color: inherit; text-decoration: none; font-size: 12.5px; }
+.ec b { font-family: var(--font-num); font-weight: 600; }
+.ec .w { color: var(--muted); font-size: 11.5px; }
+.ec .p { font-weight: 700; }
+.tag.spike { background: var(--accent); color: var(--accent-ink); }
+.since { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
+.since.up { background: var(--up-bg); color: var(--up); } .since.down { background: var(--down-bg); color: var(--down); }
+.chip { position: relative; }
+.chip > .spark { position: absolute; top: 7px; right: 8px; width: 44px; height: 16px; }
+body.tv .wrap { zoom: 1.3; } body.tv .glance { zoom: 1.3; }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
@@ -319,6 +336,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   <header class="bar-top">
     <div><h1>Market Digest</h1><p class="sub" id="asof">Loading</p><div class="status" id="status"></div></div>
     <div class="top-btns">
+      <button class="alerts" id="tv" title="Big type for a wall monitor">TV</button>
       <button class="alerts" id="density" title="Tighter spacing for a crowded screen">Compact</button>
       <button class="alerts" id="theme" title="Switch between light and dark">Theme</button>
       <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
@@ -342,6 +360,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   <h2>Market</h2>
   <div class="breadth" id="breadth" role="img"></div>
   <p class="explain" id="breadthText"></p>
+  <div id="earnbox" class="earnbox" hidden><h2>Earnings</h2><div class="elist" id="earnList"></div></div>
   <div class="strip" id="market"><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div><div class="chip skel"></div></div>
   </section>
 
@@ -484,11 +503,30 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   var ICO = {
     "new": '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
     "moon": '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+    "bars": '<path d="M5 20V10M12 20V4M19 20v-7"/>',
     "cal": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'
   };
   function ico(n) { return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' + ICO[n] + '</svg>'; }
   // Move size as a bar: full width = 10x the stock's normal swing.
   function mvbar(ratio, c) { return ratio != null ? '<span class="mv" aria-hidden="true"><b class="' + c + '" style="width:' + Math.min(100, ratio * 10) + '%"></b></span>' : ""; }
+  // Volume: plain text, or a bold tag once it runs 3x or more above a normal day's pace.
+  function volTag(v) {
+    if (v == null) return "";
+    return v >= 3 ? '<span class="tag spike" title="Volume running well above a normal day\'s pace">' + ico("bars") + 'Vol ' + v.toFixed(1) + '×</span>'
+                  : '<span class="vol' + (v >= 2 ? ' hot' : '') + '">vol ' + v.toFixed(1) + '×</span>';
+  }
+  // Moved since you last had this tab in front: set when the tab is hidden, shown after you come back.
+  var sinceBase = null, hiddenAt = null;
+  function sinceTag(sym, p) {
+    if (!sinceBase || !(sym in sinceBase)) return "";
+    var d = p - sinceBase[sym];
+    return Math.abs(d) >= 0.25 ? '<span class="since ' + cls(d) + '" title="Change in today\'s % since you last looked at this tab">' + (d > 0 ? "▲ " : "▼ ") + Math.abs(d).toFixed(2) + ' since you looked</span>' : "";
+  }
+  function pctMap() {
+    var m = {}; ["unusual", "swingers"].forEach(function (t) { ((data && data[t]) || []).forEach(function (r) { m[r.symbol] = r.pct; }); });
+    Object.keys((data && data.quotes) || {}).forEach(function (k) { m[k] = data.quotes[k][2]; });
+    return m;
+  }
   function row(r, tab) {
     var fresh = tab === "unusual" && isNew(r.symbol);
     var tags = fresh ? '<span class="tag new" title="Joined Unusual moves in the last 15 minutes">' + ico("new") + 'New</span>' : "";
@@ -503,7 +541,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chgwrap">' + spark(r.symbol, r.prev, r.pct) + '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' + ranges(r.price, r.low, r.high, r.w52) +
-      (r.rvol != null ? '<span class="vol' + (r.rvol >= 2 ? ' hot' : '') + '">vol ' + r.rvol.toFixed(1) + '×</span>' : '') + '</span>' +
+      volTag(r.rvol) + sinceTag(r.symbol, r.pct) + '</span>' +
       '<span class="ratio">' + mvbar(r.ratio, cls(r.pct)) + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
       peek(r) +
       '</button><a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">Trade ↗</a></div><div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? detail(r) : '') + '</div></li>';
@@ -548,7 +586,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
       return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
         '<span class="chgwrap">' + spark(sym, null, v[2]) + '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span></span>' +
-        '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + '<span class="nm">' + price(v[1]) + '</span>' + ranges(v[1], v[6], v[5], v[7]) + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
+        '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + '<span class="nm">' + price(v[1]) + '</span>' + ranges(v[1], v[6], v[5], v[7]) + volTag(v[4]) + sinceTag(sym, v[2]) + '</span>' +
         '<span class="ratio">' + mvbar(v[3], cls(v[2])) + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
         '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
         '<button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
@@ -612,8 +650,58 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     more.textContent = newsAll ? "Show fewer" : "Show " + Math.min(items.length, NEWS_LONG) + " headlines";
   }
   $("newsMore").addEventListener("click", function () { newsAll = !newsAll; renderNews(); });
+  // Tab icon: a dot that is green or red with SPY's direction.
+  function paintFavicon(p) {
+    var c = p == null ? "#8a96a8" : p >= 0 ? "#3ddc97" : "#ff6b7a", tri = p == null ? "" : p >= 0 ? "M16 8l7 11H9z" : "M16 24l7-11H9z";
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="' + c + '"/><path d="' + tri + '" fill="#0d1117"/></svg>';
+    $("fav").setAttribute("href", "data:image/svg+xml," + encodeURIComponent(svg));
+  }
+
+  // ---- Earnings strip (docs/earnings.json): S&P names reporting today and on the next reporting day ----
+  var earn = null;
+  function loadEarnings() {
+    getJSON("earnings.json").then(function (j) { earn = j; renderEarnings(); }).catch(function () {});
+  }
+  function renderEarnings() {
+    var box = $("earnbox");
+    if (!earn || !data) { box.hidden = true; return; }
+    var today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    var items = (earn.items || []).filter(function (e) { return e.d >= today; });
+    if (!items.length) { box.hidden = true; return; }
+    var q = {};
+    (data.market || []).concat(data.unusual || [], data.swingers || []).forEach(function (r) { q[r.symbol] = r.pct; });
+    Object.keys(data.quotes || {}).forEach(function (k) { q[k] = data.quotes[k][2]; });
+    var when = { bmo: "before open", amc: "after close", dmh: "during market" };
+    function label(d) {
+      if (d === today) return "Today";
+      var diff = Math.round((new Date(d + "T12:00:00Z") - new Date(today + "T12:00:00Z")) / 86400000);
+      return diff === 1 ? "Tomorrow" : new Date(d + "T12:00:00Z").toLocaleDateString([], { weekday: "long", timeZone: "UTC" });
+    }
+    var html = "", last = null;
+    items.forEach(function (e) {
+      if (e.d !== last) { html += '<span class="ed">' + label(e.d) + '</span>'; last = e.d; }
+      html += '<a class="ec" href="' + rh(e.s) + '" target="_blank" rel="noopener" title="' + esc(e.n) + '"><b>' + esc(e.s) + '</b>' + (when[e.h] ? '<span class="w">' + when[e.h] + '</span>' : '') +
+        (q[e.s] != null ? '<span class="p ' + cls(q[e.s]) + '">' + pct(q[e.s]) + '</span>' : '') + '</a>';
+    });
+    $("earnList").innerHTML = html;
+    box.hidden = false;
+  }
+
+  // ---- TV mode ----
+  var tvBtn = $("tv");
+  if (store("md-tv") === true) document.body.classList.add("tv");
+  tvBtn.setAttribute("aria-pressed", document.body.classList.contains("tv"));
+  tvBtn.addEventListener("click", function () {
+    var on = document.body.classList.toggle("tv"); store("md-tv", on); tvBtn.setAttribute("aria-pressed", on);
+  });
+
+  // ---- Since you looked: remember each % when the tab goes to the background ----
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { hiddenAt = pctMap(); return; }
+    if (hiddenAt && data) { sinceBase = hiddenAt; hiddenAt = null; render(); }
+  });
   function loadSparks() {
-    getJSON("spark.json").then(function (j) { sparks = j.s || {}; if (data) { render(); } }).catch(function () {});
+    getJSON("spark.json").then(function (j) { sparks = j.s || {}; if (data) { render(); renderMarket(); } }).catch(function () {});
   }
   function loadNews() {
     getJSON("news.json").then(function (n) { news = n; renderNews(); if (data) renderWatch(); }).catch(function () {});
@@ -655,6 +743,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var ses = session(), idx = (data.market || []).filter(function (r) { return r.symbol === "SPY" || r.symbol === "QQQ"; });
     var spy = idx.filter(function (r) { return r.symbol === "SPY"; })[0];
     document.title = (nNew ? "(" + nNew + ") " : "") + (spy ? ses + " · SPY " + pct(spy.pct) + " · " : "") + "Market Digest";
+    paintFavicon(spy ? spy.pct : null);
+    renderEarnings();
     $("glance").innerHTML = '<b>Market Digest</b><span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
       idx.map(function (r) { return '<span class="g-idx"><span>' + esc(r.symbol) + '</span><span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>'; }).join("") +
       (nNew ? '<span class="pill warn">' + nNew + ' new unusual</span>' : "") +
@@ -672,6 +762,23 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>' +
       (nNew ? '<span class="pill warn">' + nNew + ' new unusual</span>' : "");
   }
+  // Benchmarks stay first; the rest go biggest move first.
+  var BENCH = ["SPY", "QQQ", "IWM", "DIA"];
+  function marketOrder(m) {
+    var b = m.filter(function (r) { return BENCH.indexOf(r.symbol) >= 0; }).sort(function (x, y) { return BENCH.indexOf(x.symbol) - BENCH.indexOf(y.symbol); });
+    var o = m.filter(function (r) { return BENCH.indexOf(r.symbol) < 0; }).sort(function (x, y) { return Math.abs(y.pct) - Math.abs(x.pct); });
+    return b.concat(o);
+  }
+  function renderMarket() {
+    if (!data) return;
+    $("market").innerHTML = marketOrder(data.market).map(function (r) {
+      var heat = Math.min(32, Math.round(Math.abs(r.pct) / 4 * 32));
+      return '<a class="chip" style="--heat:' + heat + '%;--chipc:var(--' + cls(r.pct) + ')" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
+        '<div class="s">' + esc(r.symbol) + '</div><div class="n">' + esc(r.name) + '</div>' +
+        '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div>' +
+        (r.ratio != null ? '<div class="x">' + r.ratio.toFixed(1) + '× usual</div>' : '') + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + spark(r.symbol, r.prev, r.pct) + '</a>';
+    }).join("");
+  }
   function boot(d) {
     data = d;
     notify(track(d));
@@ -684,13 +791,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     $("breadth").innerHTML = '<i style="width:' + upW + '%;background:var(--up)"></i><i style="width:' + (100 - upW) + '%;background:var(--down)"></i>';
     $("breadth").setAttribute("aria-label", b.up + " up, " + b.down + " down");
     $("breadthText").textContent = Math.round(upW) + "% of stocks up (" + b.up + " up, " + b.down + " down of " + b.total + ").";
-    $("market").innerHTML = d.market.map(function (r) {
-      var heat = Math.min(32, Math.round(Math.abs(r.pct) / 4 * 32));
-      return '<a class="chip" style="--heat:' + heat + '%;--chipc:var(--' + cls(r.pct) + ')" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
-        '<div class="s">' + esc(r.symbol) + '</div><div class="n">' + esc(r.name) + '</div>' +
-        '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div>' +
-        (r.ratio != null ? '<div class="x">' + r.ratio.toFixed(1) + '× usual</div>' : '') + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + '</a>';
-    }).join("");
+    renderMarket();
     render();
   }
 
@@ -829,9 +930,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     loadGaps();
     loadNews();
     loadSparks();
+    loadEarnings();
     // Live data refreshes every minute; the plain digest about every 15, so check every 3.
     // Keep polling in a background tab while alerts are on.
-    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); loadNews(); loadSparks(); } }, liveUrl ? 60000 : 180000);
+    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); loadNews(); loadSparks(); loadEarnings(); } }, liveUrl ? 60000 : 180000);
   });
 })();
 </script>
