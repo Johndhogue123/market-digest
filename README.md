@@ -1,6 +1,6 @@
 # Market Digest
 
-A self-running scan of the S&P 500 and a set of ETFs. Three times each trading day
+A self-running scan of the S&P 500 and a set of ETFs. Every 15 minutes while the market is open,
 GitHub Actions runs `digest.py`, which pulls free market data and Benzinga headlines
 from Alpaca and rewrites `docs/data.json`. GitHub Pages serves `docs/index.html`.
 No Claude, server, or paid API is needed to keep it running.
@@ -31,3 +31,6 @@ No Claude, server, or paid API is needed to keep it running.
 
 Prices come from Alpaca's free IEX feed, so volumes look lower than on full-market
 apps. Not investment advice.
+
+The page re-checks for new data every 3 minutes, so it can stay open all day.
+Scheduled runs can start a few minutes late when GitHub is busy.

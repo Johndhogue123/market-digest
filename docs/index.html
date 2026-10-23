@@ -103,7 +103,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function ago(t) {
     var m = Math.round((Date.now() - new Date(t)) / 60000);
     if (!isFinite(m)) return "";
-    return m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago";
+    return m < 1 ? "just now" : m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago";
   }
 
   function bar(r) {
@@ -157,7 +157,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function boot(d) {
     data = d;
     var when = new Date(d.generated);
-    $("asof").textContent = d.slot + " update · " + when.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    $("asof").textContent = (d.slot === "Close" ? "Closing update · " : "Updated ") +
+      when.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) +
+      " (" + ago(d.generated) + ")";
     $("demo").hidden = !d.demo;
     var b = d.breadth, upW = b.total ? b.up / b.total * 100 : 0;
     $("breadth").innerHTML = '<i style="width:' + upW + '%;background:var(--up)"></i><i style="width:' + (100 - upW) + '%;background:var(--down)"></i>';
@@ -181,10 +183,16 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     render();
   });
 
-  fetch("data.json", { cache: "no-store" }).then(function (r) { return r.json(); }).then(boot).catch(function () {
-    $("asof").textContent = "No data yet";
-    $("list").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
-  });
+  function load(first) {
+    fetch("data.json", { cache: "no-store" }).then(function (r) { return r.json(); }).then(boot).catch(function () {
+      if (!first) return;
+      $("asof").textContent = "No data yet";
+      $("list").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
+    });
+  }
+  load(true);
+  // New data lands about every 15 minutes during market hours; check for it every 3.
+  setInterval(function () { if (!document.hidden) load(false); }, 180000);
 })();
 </script>
 </body>

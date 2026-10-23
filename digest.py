@@ -2,11 +2,11 @@
 market data, finds unusual moves and big swingers, attaches headlines, and
 writes docs/data.json for the web page in docs/index.html.
 
-Runs on a schedule in GitHub Actions. Needs two environment variables:
+Runs every 15 minutes in GitHub Actions while the market is open. Needs two environment variables:
 ALPACA_KEY_ID and ALPACA_SECRET_KEY (paper account keys are fine).
 
-    python digest.py            # real run (skips non-trading days)
-    python digest.py --force    # run even if the market is closed today
+    python digest.py            # real run (only during market hours)
+    python digest.py --force    # run even if the market is closed
     python digest.py --demo     # fake data, no keys needed, for previewing the page
 """
 
@@ -75,9 +75,14 @@ def chunks(seq, n):
         yield seq[i:i + n]
 
 
-def is_trading_day(today):
+def market_hours(today):
+    """Today's (open, close) as ET datetimes, or None on a market holiday."""
     days = get(TRADING_URL, "/v2/calendar", {"start": today, "end": today})
-    return bool(days)
+    if not days:
+        return None
+    d = days[0]
+    at = lambda hm: datetime.fromisoformat(f"{d['date']}T{hm}").replace(tzinfo=ET)
+    return at(d["open"]), at(d["close"])
 
 
 def fetch_snapshots(symbols):
@@ -204,13 +209,10 @@ def pick_lists(rows, etfs):
     return unusual[:LIST_SIZE], swingers[:LIST_SIZE], market
 
 
-def slot_label(now_et):
-    t = now_et.hour * 60 + now_et.minute
-    if t < 12 * 60:
-        return "Morning"
-    if t < 16 * 60:
-        return "Midday"
-    return "Close"
+def slot_label(now_et, close=None):
+    if close is None:
+        close = now_et.replace(hour=16, minute=0)
+    return "Close" if now_et >= close else "Intraday"
 
 
 # ---------- demo data ----------
@@ -251,11 +253,15 @@ def main():
     now_et = datetime.now(ET)
     today = now_et.date().isoformat()
 
+    close = None
     if demo:
         rows = demo_rows(names, groups)
     else:
-        if not force and not is_trading_day(today):
-            print(f"{today} is not a trading day; leaving the page as it is.")
+        hours = market_hours(today)
+        close = hours[1] if hours else None
+        # Runs every 15 minutes; only scan from the open until shortly after the close.
+        if not force and not (hours and hours[0] <= now_et <= hours[1] + timedelta(minutes=20)):
+            print("Market not open; leaving the page as it is.")
             return
         snaps = fetch_snapshots(symbols)
         closes = fetch_daily_closes(symbols, today)
@@ -273,7 +279,7 @@ def main():
     up = sum(1 for r in rows if r["pct"] > 0)
     payload = {
         "generated": now_et.isoformat(timespec="minutes"),
-        "slot": slot_label(now_et), "demo": demo,
+        "slot": slot_label(now_et, close), "demo": demo,
         "breadth": {"up": up, "down": len(rows) - up, "total": len(rows)},
         "market": market, "unusual": unusual, "swingers": swingers,
         "settings": {"lookback": LOOKBACK, "unusual_ratio": UNUSUAL_RATIO,

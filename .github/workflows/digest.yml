@@ -2,11 +2,10 @@ name: Market digest
 
 on:
   schedule:
-    # Times are UTC. Each lands inside market hours in both EDT and EST:
-    # 14:45 = 10:45am EDT / 9:45am EST, 17:30 = 1:30pm / 12:30pm, 21:15 = 5:15pm / 4:15pm.
-    - cron: "45 14 * * 1-5"
-    - cron: "30 17 * * 1-5"
-    - cron: "15 21 * * 1-5"
+    # Every 15 minutes, 13:00-21:59 UTC on weekdays. That covers market hours in
+    # both EDT and EST; digest.py exits early outside 9:30am-4:20pm ET and on holidays.
+    # GitHub may start scheduled runs a few minutes late at busy times.
+    - cron: "*/15 13-21 * * 1-5"
   workflow_dispatch:
     inputs:
       force:
