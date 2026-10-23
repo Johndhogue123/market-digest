@@ -167,6 +167,14 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<div class="lbl"><span>Low ' + price(r.low) + '</span><span>High ' + price(r.high) + '</span></div></div>';
   }
 
+  // Google Finance needs SYMBOL:EXCHANGE (docs/exchanges.json, built by digest.py); search is the fallback.
+  var exchanges = {};
+  function gf(sym) {
+    var x = exchanges[sym];
+    return x ? "https://www.google.com/finance/quote/" + encodeURIComponent(sym) + ":" + x
+             : "https://www.google.com/search?q=" + encodeURIComponent(sym) + "+stock";
+  }
+
   function detail(r) {
     var t = encodeURIComponent(r.symbol);
     var news = (r.news || []).map(function (n) {
@@ -180,7 +188,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       (r.rvol != null ? ' Volume is running <b>' + r.rvol.toFixed(1) + '×</b> a normal day\'s pace.' : '') + '</p>' +
       (news ? '<ul class="news">' + news + '</ul>' : '<p class="explain">No headlines in the last day and a half.</p>') +
       '<div class="links"><a href="https://robinhood.com/stocks/' + t + '" target="_blank" rel="noopener">Robinhood</a>' +
-      '<a href="https://www.google.com/finance/quote/' + t + '" target="_blank" rel="noopener">Google Finance</a>' +
+      '<a href="' + gf(r.symbol) + '" target="_blank" rel="noopener">Google Finance</a>' +
       '<a href="https://finance.yahoo.com/quote/' + t + '/news" target="_blank" rel="noopener">Yahoo news</a></div>';
   }
 
@@ -403,6 +411,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
         $("list-unusual").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
       });
   }
+  getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; }).catch(function () {});
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
     load(true);
     loadGaps();
