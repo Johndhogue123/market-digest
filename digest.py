@@ -402,6 +402,31 @@ def write_baseline(names, groups, etfs, closes, volumes, today, earnings):
 
 # ---------- main ----------
 
+EXCHANGES_OUT = os.path.join(ROOT, "docs", "exchanges.json")
+GOOGLE_EXCHANGE = {"NASDAQ": "NASDAQ", "NYSE": "NYSE", "ARCA": "NYSEARCA", "AMEX": "NYSEAMERICAN", "BATS": "BATS"}
+
+
+def write_exchanges(symbols, today):
+    """Google Finance links need SYMBOL:EXCHANGE; Alpaca's asset list knows each ticker's exchange. Refreshed weekly."""
+    try:
+        with open(EXCHANGES_OUT) as f:
+            if (datetime.fromisoformat(today) - datetime.fromisoformat(json.load(f)["date"])).days < 7:
+                return
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        assets = get("https://paper-api.alpaca.markets", "/v2/assets", {"status": "active", "asset_class": "us_equity"})
+    except Exception as e:
+        print("Could not fetch exchanges:", e)
+        return
+    wanted = set(symbols)
+    ex = {a["symbol"]: GOOGLE_EXCHANGE[a["exchange"]] for a in assets
+          if a.get("symbol") in wanted and a.get("exchange") in GOOGLE_EXCHANGE}
+    with open(EXCHANGES_OUT, "w") as f:
+        json.dump({"date": today, "ex": ex}, f, separators=(",", ":"))
+    print(f"Wrote {EXCHANGES_OUT}: {len(ex)} of {len(wanted)} symbols.")
+
+
 def main():
     demo, force = "--demo" in sys.argv, "--force" in sys.argv
     names, groups, etfs = load_universe()
@@ -427,6 +452,7 @@ def main():
         closes, volumes = fetch_daily_history(symbols, today)
         earnings = fetch_earnings(symbols, today)
         write_baseline(names, groups, etfs, closes, volumes, today, earnings)
+        write_exchanges(symbols, today)
         rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et), earnings)
         if not rows:
             print("No trades yet today; leaving the page as it is.")
