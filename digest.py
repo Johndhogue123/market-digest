@@ -2,7 +2,7 @@
 market data, finds unusual moves and big swingers, attaches headlines, and
 writes docs/data.json for the web page in docs/index.html.
 
-Runs every 15 minutes in GitHub Actions while the market is open. Needs two environment variables:
+Runs every 15 minutes in GitHub Actions from the open until an hour after the close. Needs two environment variables:
 ALPACA_KEY_ID and ALPACA_SECRET_KEY (paper account keys are fine). Optional:
 FINNHUB_KEY (free key from finnhub.io) adds earnings tags; without it they are skipped.
 
@@ -46,6 +46,7 @@ NEWS_PAGES = 6             # pages of 50 recent headlines scanned for the combin
 PREMARKET_START_MIN = 150  # pre-market scans begin this many minutes before the open (7:00am ET)
 GAP_MIN_PCT = 1.0          # pre-market gap lists need at least this % vs yesterday's close...
 GAP_MIN_RATIO = 1.5        # ...and this many times the stock's normal daily move
+AFTER_HOURS_MIN = 60      # keep scanning this long after the close (to 5pm ET, about when IEX stops trading)
 THIN_SHARES = 2000         # under this many IEX shares traded pre-market, flag the price as thin
 
 
@@ -263,7 +264,7 @@ def fade_read(price, high, low, prev):
     return None
 
 
-def build_rows(snaps, closes, volumes, names, groups, today, frac, earnings):
+def build_rows(snaps, closes, volumes, names, groups, today, frac, earnings, close=None):
     rows = []
     for sym, s in snaps.items():
         try:
@@ -277,6 +278,13 @@ def build_rows(snaps, closes, volumes, names, groups, today, frac, earnings):
         if not prev:
             continue
         pct = (price - prev) / prev * 100
+        # After the close: move since today's regular-session close, from trades printed after 4pm.
+        ah = None
+        lt = s.get("latestTrade") or {}
+        if close and lt.get("t") and day["c"]:
+            when = datetime.fromisoformat(lt["t"].replace("Z", "+00:00")).astimezone(ET)
+            if when > close:
+                ah = round((price - day["c"]) / day["c"] * 100, 2)
         nm = normal_move(closes.get(sym, []))
         av = avg_volume(volumes.get(sym, []))
         rows.append({
@@ -286,7 +294,7 @@ def build_rows(snaps, closes, volumes, names, groups, today, frac, earnings):
             "ratio": round(abs(pct) / nm, 1) if nm else None,
             "volume": day["v"], "rvol": rel_volume(day["v"], av, frac),
             "read": fade_read(price, day["h"], day["l"], prev),
-            "earn": earnings.get(sym),
+            "earn": earnings.get(sym), "ah": ah,
         })
     return rows
 
@@ -306,7 +314,9 @@ def pick_lists(rows, etfs):
 def slot_label(now_et, close=None):
     if close is None:
         close = now_et.replace(hour=16, minute=0)
-    return "Close" if now_et >= close else "Intraday"
+    if now_et < close:
+        return "Intraday"
+    return "After hours" if now_et < close + timedelta(minutes=AFTER_HOURS_MIN) else "Close"
 
 
 # ---------- pre-market gaps ----------
@@ -477,8 +487,8 @@ def main():
         if pre_window or (force and hours and now_et < hours[0]):
             run_premarket(symbols, names, groups, now_et, hours[0])
             return
-        # Runs every 15 minutes; only scan from the open until shortly after the close.
-        if not force and not (hours and hours[0] <= now_et <= hours[1] + timedelta(minutes=20)):
+        # Runs every 15 minutes; scan from the open through the after-hours hour.
+        if not force and not (hours and hours[0] <= now_et <= hours[1] + timedelta(minutes=AFTER_HOURS_MIN + 5)):
             print("Market not open; leaving the page as it is.")
             return
         snaps = fetch_snapshots(symbols)
@@ -487,7 +497,7 @@ def main():
         write_baseline(names, groups, etfs, closes, volumes, today, earnings)
         write_exchanges(symbols, today)
         write_news(symbols, now_et)
-        rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et), earnings)
+        rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et), earnings, close)
         if not rows:
             print("No trades yet today; leaving the page as it is.")
             return

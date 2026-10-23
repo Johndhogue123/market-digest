@@ -245,13 +245,14 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     p.forEach(function (x) { o[x.type] = x.value; });
     var m = (+o.hour % 24) * 60 + +o.minute;
     if (o.weekday === "Sat" || o.weekday === "Sun") return "Closed";
-    return m >= 570 && m < 960 ? "Open" : m >= 240 && m < 570 ? "Pre-market" : "Closed";
+    return m >= 570 && m < 960 ? "Open" : m >= 240 && m < 570 ? "Pre-market" : m >= 960 && m < 1200 ? "After hours" : "Closed";
   }
   function rh(sym) { return "https://robinhood.com/stocks/" + encodeURIComponent(sym); }
 
   function row(r, tab) {
     var fresh = tab === "unusual" && isNew(r.symbol);
     var tags = fresh ? '<span class="tag new">New</span>' : "";
+    if (r.ah != null && Math.abs(r.ah) >= 0.3) tags += '<span class="tag dim" title="Move since the 4pm close, thin IEX trading">AH <span class="' + cls(r.ah) + '">' + pct(r.ah) + '</span></span>';
     if (r.earn) tags += '<span class="tag earn">' + esc(r.earn) + '</span>';
     if (r.read && r.read.kind === "fade") tags += '<span class="tag solid">Fading</span>';
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
@@ -391,7 +392,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 
   function paintStatus(nNew) {
     var ses = session(), live = data && data.live;
-    $("status").innerHTML = '<span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" ? "warn" : "") + '">' + ses + '</span>' +
+    $("status").innerHTML = '<span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
       '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>' +
       (nNew ? '<span class="pill warn">' + nNew + ' new unusual</span>' : "");
   }
@@ -399,7 +400,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     data = d;
     notify(track(d));
     var when = new Date(d.generated);
-    $("asof").textContent = (d.slot === "Close" ? "Closing update · " : d.live ? "Live · updated " : "Updated ") +
+    $("asof").textContent = (d.slot === "After hours" ? "After hours (thin) · " : d.slot === "Close" ? "Closing update · " : d.live ? "Live · updated " : "Updated ") +
       when.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) +
       " (" + ago(d.generated) + ")";
     $("demo").hidden = !d.demo;

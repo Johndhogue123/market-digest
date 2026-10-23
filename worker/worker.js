@@ -132,13 +132,16 @@ async function build(env) {
     const prev = prevBar.c;
     const [name, group, normal, avgVol] = base.symbols[sym] || ["", "", null, null];
     const pct = (price - prev) / prev * 100;
+    // After 4pm: move since today's regular close (IEX daily bars stop at the close).
+    const ah = minutes >= 960 && day.c && snap.latestTrade && snap.latestTrade.p !== day.c
+      ? round((price - day.c) / day.c * 100, 2) : null;
     rows.push({
       symbol: sym, name, group, price: round(price, 4), prev, open: day.o, high: day.h, low: day.l,
       pct: round(pct, 2), normal: normal ? round(normal, 2) : null,
       ratio: normal ? round(Math.abs(pct) / normal, 1) : null,
       volume: day.v, rvol: avgVol ? round(day.v / (avgVol * frac), 1) : null,
       read: fadeRead(price, day.h, day.l, prev),
-      earn: (base.earnings || {})[sym] || null,
+      earn: (base.earnings || {})[sym] || null, ah,
     });
   }
   // Before the first trade of the day, the page keeps showing the last 15-minute digest.
@@ -158,7 +161,7 @@ async function build(env) {
 
   const up = rows.filter((r) => r.pct > 0).length;
   return {
-    live: true, generated: new Date().toISOString(), slot: minutes >= 960 ? "Close" : "Intraday", demo: false,
+    live: true, generated: new Date().toISOString(), slot: minutes >= 1020 ? "Close" : minutes >= 960 ? "After hours" : "Intraday", demo: false,
     breadth: { up, down: rows.length - up, total: rows.length },
     market, unusual, swingers, settings: s,
     // Every scanned symbol, for the page's watchlist: [name, price, pct, ratio, rvol]
