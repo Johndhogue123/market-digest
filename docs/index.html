@@ -256,6 +256,13 @@ footer { line-height: 1.5; margin-top: 8px; }
 .row.flash-up { animation: flash-up 1.6s ease-out; }
 .row.flash-down { animation: flash-down 1.6s ease-out; }
 @media (prefers-reduced-motion: reduce) { .row.flash-up, .row.flash-down { animation: none; } .glance { transition: none; } }
+.chgwrap { display: inline-flex; align-items: center; gap: 10px; justify-self: end; }
+.spark { display: block; width: 72px; height: 24px; overflow: visible; }
+.spark path { fill: none; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.spark .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; opacity: .55; }
+.spark .up { stroke: var(--up); } .spark .down { stroke: var(--down); }
+.spark circle.up { fill: var(--up); } .spark circle.down { fill: var(--down); }
+.cols .list > .row:first-child .spark { width: 88px; height: 28px; }
 .cols .list > .row:first-child .tk { font-size: 21px; }
 .cols .list > .row:first-child .chg { font-size: 18px; padding: 5px 12px; min-width: 96px; }
 .cols .list > .row:first-child .head { padding-top: 12px; padding-bottom: 12px; }
@@ -426,6 +433,19 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   }
   function rh(sym) { return "https://robinhood.com/stocks/" + encodeURIComponent(sym); }
 
+  // Today's path in 72x24: line coloured by the day's direction, dashed line at yesterday's close.
+  var sparks = {};
+  function spark(sym, prev, pctNow) {
+    var a = sparks[sym]; if (!a || a.length < 2) return "";
+    var lo = Math.min.apply(null, a), hi = Math.max.apply(null, a);
+    if (prev > 0) { lo = Math.min(lo, prev); hi = Math.max(hi, prev); }
+    var span = hi - lo || 1, W = 72, H = 24, pad = 2;
+    function y(v) { return (pad + (hi - v) / span * (H - 2 * pad)).toFixed(1); }
+    var d = a.map(function (v, i) { return (i ? "L" : "M") + (i / (a.length - 1) * W).toFixed(1) + " " + y(v); }).join("");
+    var c = cls(pctNow);
+    return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + (prev > 0 ? '<path class="ref" d="M0 ' + y(prev) + 'H' + W + '"/>' : "") +
+      '<path class="' + c + '" d="' + d + '"/><circle class="' + c + '" cx="' + W + '" cy="' + y(a[a.length - 1]) + '" r="2.4"/></svg>';
+  }
   function row(r, tab) {
     var fresh = tab === "unusual" && isNew(r.symbol);
     var tags = fresh ? '<span class="tag new">New</span>' : "";
@@ -438,7 +458,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var isOpen = !!open[tab + ":" + r.symbol];
     return '<li class="row' + (fresh ? ' is-new' : '') + '" data-s="' + esc(tab + ":" + r.symbol) + '"><div class="top"><button class="head" aria-expanded="' + isOpen + '">' +
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
-      '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
+      '<span class="chgwrap">' + spark(r.symbol, r.prev, r.pct) + '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span>' + ranges(r.price, r.low, r.high, r.w52) +
       (r.rvol != null ? '<span class="vol' + (r.rvol >= 2 ? ' hot' : '') + '">vol ' + r.rvol.toFixed(1) + '×</span>' : '') + '</span>' +
       '<span class="ratio">' + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' +
@@ -484,7 +504,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       var v = q[sym];
       if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
       return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
-        '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span>' +
+        '<span class="chgwrap">' + spark(sym, null, v[2]) + '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span></span>' +
         '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + '<span class="nm">' + price(v[1]) + '</span>' + ranges(v[1], v[6], v[5], v[7]) + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
         '<span class="ratio">' + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
         '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
@@ -549,6 +569,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     more.textContent = newsAll ? "Show fewer" : "Show " + Math.min(items.length, NEWS_LONG) + " headlines";
   }
   $("newsMore").addEventListener("click", function () { newsAll = !newsAll; renderNews(); });
+  function loadSparks() {
+    getJSON("spark.json").then(function (j) { sparks = j.s || {}; if (data) { render(); } }).catch(function () {});
+  }
   function loadNews() {
     getJSON("news.json").then(function (n) { news = n; renderNews(); if (data) renderWatch(); }).catch(function () {});
   }
@@ -750,9 +773,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     load(true);
     loadGaps();
     loadNews();
+    loadSparks();
     // Live data refreshes every minute; the plain digest about every 15, so check every 3.
     // Keep polling in a background tab while alerts are on.
-    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); loadNews(); } }, liveUrl ? 60000 : 180000);
+    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); loadNews(); loadSparks(); } }, liveUrl ? 60000 : 180000);
   });
 })();
 </script>
