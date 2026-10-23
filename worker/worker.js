@@ -4,7 +4,12 @@
 // each stock's normal move and average volume, so this only fetches today's prices
 // and headlines. The list rules mirror digest.py; keep the two in step.
 //
-// Secrets: ALPACA_KEY_ID, ALPACA_SECRET_KEY. Var: BASELINE_URL (see wrangler.toml).
+// A cron trigger (wrangler.toml) also starts the Market digest GitHub workflow every 5
+// minutes, because GitHub's own scheduler is unreliable. It needs the secret DISPATCH_TOKEN
+// (fine-grained token, Actions read and write on this repo); digest.py exits by itself
+// outside trading hours.
+//
+// Secrets: ALPACA_KEY_ID, ALPACA_SECRET_KEY, DISPATCH_TOKEN. Var: BASELINE_URL (see wrangler.toml).
 
 const DATA_URL = "https://data.alpaca.markets";
 const CACHE_MS = 55_000;
@@ -13,6 +18,21 @@ let cached = null;   // { at, body } shared by everyone who opens the page
 let building = null;
 
 export default {
+  async scheduled(event, env) {
+    if (!env.DISPATCH_TOKEN) return;
+    const res = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/digest.yml/dispatches`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.DISPATCH_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "market-digest-live",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      body: JSON.stringify({ ref: "main" }),
+    });
+    if (!res.ok) console.log("workflow dispatch failed", res.status, await res.text());
+  },
+
   async fetch(request, env) {
     if (request.method === "OPTIONS") return reply(null, 204);
     try {

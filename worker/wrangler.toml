@@ -3,6 +3,11 @@ main = "worker.js"
 compatibility_date = "2025-09-01"
 workers_dev = true
 
+[triggers]
+# Weekdays, every 5 minutes, 11:00-22:59 UTC (covers 7am-5pm ET in EDT and EST).
+crons = ["*/5 11-22 * * 1-5"]
+
 [vars]
+GITHUB_REPO = "Johndhogue123/market-digest"
 # Published by digest.py through GitHub Pages. Change it if you fork the repo.
 BASELINE_URL = "https://johndhogue123.github.io/market-digest/baseline.json"

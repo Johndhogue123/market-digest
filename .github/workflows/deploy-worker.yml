@@ -35,10 +35,12 @@ jobs:
         env:
           ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
         run: |
           npx --yes wrangler@4 deploy | tee deploy.log
           printf '%s' "$ALPACA_KEY_ID" | npx --yes wrangler@4 secret put ALPACA_KEY_ID
           printf '%s' "$ALPACA_SECRET_KEY" | npx --yes wrangler@4 secret put ALPACA_SECRET_KEY
+          [ -z "$DISPATCH_TOKEN" ] || printf '%s' "$DISPATCH_TOKEN" | npx --yes wrangler@4 secret put DISPATCH_TOKEN
           url=$(grep -oE 'https://[A-Za-z0-9.-]+\.workers\.dev' deploy.log | head -1)
           [ -n "$url" ] || { echo "Could not find the worker URL in the deploy output"; exit 1; }
           printf '{"url":"%s"}\n' "$url" > ../docs/live.json
