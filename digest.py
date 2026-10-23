@@ -29,6 +29,8 @@ PREMARKET_OUT = os.path.join(ROOT, "docs", "premarket.json")
 BASELINE_OUT = os.path.join(ROOT, "docs", "baseline.json")
 # Recent headlines about universe stocks; the page picks the ones for tickers it is showing.
 NEWS_OUT = os.path.join(ROOT, "docs", "news.json")
+# Today's 5-minute closes for the symbols on the page, drawn as little sparklines next to each % change.
+SPARK_OUT = os.path.join(ROOT, "docs", "spark.json")
 DATA_URL = "https://data.alpaca.markets"
 TRADING_URL = "https://paper-api.alpaca.markets"
 ET = ZoneInfo("America/New_York")
@@ -389,6 +391,31 @@ def fetch_premarket_bars(symbols, start_et, today):
     return out
 
 
+def write_sparks(symbols, start_et, now_et):
+    """Today's 5-minute closes (premarket onward) per symbol. Best effort: a failure leaves the old file."""
+    start = start_et.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out = {}
+    try:
+        for part in chunks(symbols, 50):
+            token = None
+            while True:
+                params = {"symbols": ",".join(part), "timeframe": "5Min", "start": start, "feed": "iex", "limit": 10000}
+                if token:
+                    params["page_token"] = token
+                res = get(DATA_URL, "/v2/stocks/bars", params)
+                for sym, bars in (res.get("bars") or {}).items():
+                    out.setdefault(sym, []).extend(round(b["c"], 4) for b in bars)
+                token = res.get("next_page_token")
+                if not token:
+                    break
+    except Exception as e:  # noqa: BLE001
+        print(f"Sparklines skipped: {e}")
+        return
+    with open(SPARK_OUT, "w") as f:
+        json.dump({"generated": now_et.isoformat(timespec="minutes"), "s": {k: v[-90:] for k, v in out.items() if len(v) >= 2}}, f, separators=(",", ":"))
+    print(f"Wrote {SPARK_OUT}: {len(out)} symbols.")
+
+
 def build_gaps(snaps, closes, names, groups, open_et):
     """Names whose latest pre-market trade is well away from yesterday's close."""
     today = open_et.date().isoformat()
@@ -565,6 +592,8 @@ def main():
     news = demo_news(listed) if demo else fetch_news(listed)
     for r in unusual + swingers:
         r["news"] = news.get(r["symbol"], [])
+    if not demo:
+        write_sparks(sorted({r["symbol"] for r in unusual + swingers + market}), now_et.replace(hour=4, minute=0, second=0, microsecond=0), now_et)
 
     up = sum(1 for r in rows if r["pct"] > 0)
     payload = {
