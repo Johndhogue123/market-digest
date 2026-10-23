@@ -118,7 +118,7 @@ function trend(s, price, high, low, tail, range52) {
     out.streak += step;
   }
   if (range52) {
-    const hi = Math.max(range52[1], high), lo = Math.min(range52[0], low);
+    const hi = Math.max(range52[0], high), lo = Math.min(range52[1], low); // baseline stores [high, low]
     if (hi > lo) {
       out.w52 = [round(lo, 4), round(hi, 4)];
       if ((hi - price) / hi * 100 <= s.near_52w_pct) out.near52 = "high";
