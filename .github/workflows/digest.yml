@@ -12,6 +12,10 @@ on:
         description: "Run even if the market is closed today"
         type: boolean
         default: false
+      sparks:
+        description: "Only rebuild the sparkline file for the symbols on the page (works when the market is closed)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -34,7 +38,7 @@ jobs:
           ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
-        run: python digest.py ${{ inputs.force && '--force' || '' }}
+        run: python digest.py ${{ inputs.force && '--force' || '' }} ${{ inputs.sparks && '--sparks' || '' }}
       - name: Publish
         run: |
           git config user.name "market-digest bot"

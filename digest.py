@@ -391,7 +391,7 @@ def fetch_premarket_bars(symbols, start_et, today):
     return out
 
 
-def write_sparks(symbols, start_et, now_et):
+def write_sparks(symbols, start_et, now_et, end_et=None):
     """Today's 5-minute closes (premarket onward) per symbol. Best effort: a failure leaves the old file."""
     start = start_et.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     out = {}
@@ -400,6 +400,8 @@ def write_sparks(symbols, start_et, now_et):
             token = None
             while True:
                 params = {"symbols": ",".join(part), "timeframe": "5Min", "start": start, "feed": "iex", "limit": 10000}
+                if end_et:
+                    params["end"] = end_et.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 if token:
                     params["page_token"] = token
                 res = get(DATA_URL, "/v2/stocks/bars", params)
@@ -555,7 +557,20 @@ def write_exchanges(symbols, today):
     print(f"Wrote {EXCHANGES_OUT}: {len(ex)} of {len(wanted)} symbols.")
 
 
+def sparks_only():
+    """Rebuild docs/spark.json for the symbols already on the page, for the session the page shows (works any time)."""
+    with open(OUT) as f:
+        d = json.load(f)
+    gen = datetime.fromisoformat(d["generated"])
+    gen = gen if gen.tzinfo else gen.replace(tzinfo=ET)
+    day = gen.astimezone(ET).replace(hour=4, minute=0, second=0, microsecond=0)
+    symbols = sorted({r["symbol"] for k in ("unusual", "swingers", "market") for r in d.get(k, [])})
+    write_sparks(symbols, day, gen, day.replace(hour=20))
+
+
 def main():
+    if "--sparks" in sys.argv:
+        return sparks_only()
     demo, force = "--demo" in sys.argv, "--force" in sys.argv
     names, groups, etfs = load_universe()
     symbols = sorted(names)
