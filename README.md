@@ -12,6 +12,10 @@ No Claude, server, or paid API is needed to keep it running.
   (average absolute daily % change over the last 20 days) and at least 1.5%.
 - **Big swingers:** stocks that normally move 2.5%+ a day (TSLA-type names),
   ranked by today's move, tagged "Bigger than usual" or "Normal day for it".
+- **Pre-market gaps:** from 7am ET, scans every 15 minutes write `docs/premarket.json`: names whose latest
+  pre-market trade is at least 1% (and 1.5x their normal move) away from yesterday's close, with pre-market
+  volume and a **Thin** tag under 2,000 shares. Alpaca's free IEX feed sees only a slice of pre-market trading,
+  so many names have no print at all and thin ones can show odd prices. Treat it as a prompt to look, not a quote.
 - **New** flag on Unusual moves for the first 15 minutes after a stock joins the list, plus an
   **Alerts** button (chime and desktop pop-up; the first look of the day alerts on nothing).
 - **vol 2.1×** on each row: today's volume against a normal day's pace at this time.
