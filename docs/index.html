@@ -67,6 +67,19 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .links a { color: var(--fg); text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 10px; }
 .empty { text-align: center; color: var(--muted); padding: 28px 12px; border: 1px dashed var(--line); border-radius: 10px; }
 footer { color: var(--muted); font-size: 12px; }
+.cols { display: grid; gap: 14px; }
+.col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.col h3 { display: none; margin: 0; font-size: 16px; }
+.cols[data-active="unusual"] .col[data-col="swingers"], .cols[data-active="swingers"] .col[data-col="unusual"] { display: none; }
+/* Second-monitor layout: both lists side by side, no tabs. */
+@media (min-width: 1100px) {
+  .wrap { max-width: 1400px; }
+  .strip { grid-template-columns: repeat(11, minmax(0, 1fr)); }
+  .tabs { display: none; }
+  .cols { grid-template-columns: 1fr 1fr; }
+  .cols .col { display: flex !important; }
+  .col h3 { display: block; }
+}
 a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
@@ -87,14 +100,16 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     <button role="tab" data-tab="unusual" aria-selected="true">Unusual moves</button>
     <button role="tab" data-tab="swingers" aria-selected="false">Big swingers</button>
   </div>
-  <p class="explain" id="explain"></p>
-  <ul class="list" id="list"></ul>
+  <div class="cols" id="cols" data-active="unusual">
+    <section class="col" data-col="unusual"><h3>Unusual moves</h3><p class="explain" id="explain-unusual"></p><ul class="list" id="list-unusual"></ul></section>
+    <section class="col" data-col="swingers"><h3>Big swingers</h3><p class="explain" id="explain-swingers"></p><ul class="list" id="list-swingers"></ul></section>
+  </div>
 
   <footer>Prices from Alpaca's free IEX feed, so volumes run lower than on Robinhood. Headlines from Benzinga via Alpaca. Not investment advice.</footer>
 </main>
 <script>
 (function () {
-  var data = null, tab = "unusual", open = {};
+  var data = null, open = {};
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
   function pct(p) { return (p > 0 ? "+" : "") + p.toFixed(2) + "%"; }
@@ -131,13 +146,13 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '<a href="https://finance.yahoo.com/quote/' + t + '/news" target="_blank" rel="noopener">Yahoo news</a></div>';
   }
 
-  function row(r) {
+  function row(r, tab) {
     var tags = "";
     if (r.read && r.read.kind === "fade") tags += '<span class="tag solid">Fading</span>';
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
     if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "" : "dim") + '">' + esc(r.usual) + '</span>';
-    var isOpen = !!open[r.symbol];
-    return '<li class="row" data-s="' + esc(r.symbol) + '"><button class="head" aria-expanded="' + isOpen + '">' +
+    var isOpen = !!open[tab + ":" + r.symbol];
+    return '<li class="row" data-s="' + esc(tab + ":" + r.symbol) + '"><button class="head" aria-expanded="' + isOpen + '">' +
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
       '<span class="meta">' + tags + '<span class="nm">' + price(r.price) + '</span></span>' +
@@ -147,11 +162,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 
   function render() {
     var s = data.settings;
-    $("explain").textContent = tab === "unusual"
-      ? "Moving at least " + s.unusual_ratio + "× their normal daily swing (average of the last " + s.lookback + " days)."
-      : "Stocks that usually move " + s.swinger_normal + "% or more a day, ranked by today's move.";
-    var rows = data[tab];
-    $("list").innerHTML = rows.length ? rows.map(row).join("") : '<li class="empty">Nothing unusual right now.</li>';
+    $("explain-unusual").textContent = "Moving at least " + s.unusual_ratio + "× their normal daily swing (average of the last " + s.lookback + " days).";
+    $("explain-swingers").textContent = "Stocks that usually move " + s.swinger_normal + "% or more a day, ranked by today's move.";
+    ["unusual", "swingers"].forEach(function (t) {
+      var rows = data[t];
+      $("list-" + t).innerHTML = rows.length ? rows.map(function (r) { return row(r, t); }).join("") : '<li class="empty">Nothing unusual right now.</li>';
+    });
   }
 
   function boot(d) {
@@ -172,13 +188,13 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     render();
   }
 
-  $("list").addEventListener("click", function (e) {
+  $("cols").addEventListener("click", function (e) {
     var h = e.target.closest(".head"); if (!h) return;
     var s = h.parentNode.getAttribute("data-s"); open[s] = !open[s]; render();
   });
   document.querySelector(".tabs").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-tab]"); if (!b) return;
-    tab = b.getAttribute("data-tab");
+    $("cols").setAttribute("data-active", b.getAttribute("data-tab"));
     document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", x === b); });
     render();
   });
@@ -187,7 +203,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     fetch("data.json", { cache: "no-store" }).then(function (r) { return r.json(); }).then(boot).catch(function () {
       if (!first) return;
       $("asof").textContent = "No data yet";
-      $("list").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
+      $("list-unusual").innerHTML = '<li class="empty">The first update arrives after the next scheduled run.</li>';
     });
   }
   load(true);
