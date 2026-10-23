@@ -362,6 +362,8 @@ def main():
         "slot": slot_label(now_et, close), "demo": demo,
         "breadth": {"up": up, "down": len(rows) - up, "total": len(rows)},
         "market": market, "unusual": unusual, "swingers": swingers,
+        # Every scanned symbol, so the page's watchlist can show any ticker: [name, price, pct, ratio, rvol]
+        "quotes": {r["symbol"]: [r["name"], r["price"], r["pct"], r["ratio"], r["rvol"]] for r in rows},
         "settings": settings(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

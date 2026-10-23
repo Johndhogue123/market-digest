@@ -83,6 +83,12 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .news span { display: block; color: var(--muted); font-size: 12px; }
 .links { display: flex; flex-wrap: wrap; gap: 8px; }
 .links a { color: var(--fg); text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 10px; }
+.wl-add { display: flex; gap: 6px; }
+.wl-add input { flex: 1; min-width: 0; font: inherit; font-family: var(--font-num); text-transform: uppercase; background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+.wl-add button, .wl-x { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.wl-x { color: var(--muted); border: 0; border-left: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0 12px; }
+.wl-row { display: flex; align-items: stretch; }
+.wl-row .head { cursor: default; }
 .empty { text-align: center; color: var(--muted); padding: 28px 12px; border: 1px dashed var(--line); border-radius: 10px; }
 footer { color: var(--muted); font-size: 12px; }
 .cols { display: grid; gap: 14px; }
@@ -111,6 +117,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     </div>
   </header>
   <div class="demo" id="demo" hidden>Preview with made-up numbers. Real data appears after the first scheduled run.</div>
+
+  <h2>Watchlist</h2>
+  <form class="wl-add" id="wlForm"><input id="wlInput" placeholder="Add ticker (S&P 500 or ETF), e.g. NVDA" maxlength="6" autocomplete="off" aria-label="Add ticker"><button>Add</button></form>
+  <ul class="list" id="wlList"></ul>
 
   <h2>Market</h2>
   <div class="breadth" id="breadth" role="img"></div>
@@ -187,7 +197,35 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       '</button><a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">Trade ↗</a></div><div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? detail(r) : '') + '</div></li>';
   }
 
+  // ---- watchlist: pinned at the top, stored in this browser ----
+  var watch = store("md-watch") || [];
+  function renderWatch() {
+    var q = (data && data.quotes) || {};
+    $("wlList").innerHTML = watch.length ? watch.map(function (sym) {
+      var v = q[sym];
+      if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (data ? 'not in S&P 500 / ETF list, or no trades yet' : 'loading') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
+      return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
+        '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span>' +
+        '<span class="meta"><span class="nm">' + price(v[1]) + '</span>' + (v[4] != null ? '<span class="vol' + (v[4] >= 2 ? ' hot' : '') + '">vol ' + v[4].toFixed(1) + '×</span>' : '') + '</span>' +
+        '<span class="ratio">' + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span></span>' +
+        '<a class="trade" href="' + rh(sym) + '" target="_blank" rel="noopener">Trade ↗</a>' +
+        '<button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
+    }).join("") : '<li class="empty">Add tickers above to pin them here.</li>';
+  }
+  $("wlForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var t = $("wlInput").value.trim().toUpperCase().replace(/[^A-Z.\-]/g, "");
+    $("wlInput").value = "";
+    if (t && watch.indexOf(t) < 0) { watch.push(t); store("md-watch", watch); renderWatch(); }
+  });
+  $("wlList").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-x]"); if (!b) return;
+    watch = watch.filter(function (x) { return x !== b.getAttribute("data-x"); });
+    store("md-watch", watch); renderWatch();
+  });
+
   function render() {
+    renderWatch();
     var s = data.settings;
     $("explain-unusual").textContent = "Moving at least " + s.unusual_ratio + "× their normal daily swing (average of the last " + s.lookback + " days).";
     $("explain-swingers").textContent = "Stocks that usually move " + s.swinger_normal + "% or more a day, ranked by today's move.";
