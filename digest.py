@@ -23,6 +23,8 @@ from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "docs", "data.json")
+# Per-symbol normals for the near-live worker in worker/, which only fetches today's prices.
+BASELINE_OUT = os.path.join(ROOT, "docs", "baseline.json")
 DATA_URL = "https://data.alpaca.markets"
 TRADING_URL = "https://paper-api.alpaca.markets"
 ET = ZoneInfo("America/New_York")
@@ -93,10 +95,10 @@ def fetch_snapshots(symbols):
     return out
 
 
-def fetch_daily_closes(symbols, today):
-    """Recent daily closes per symbol, oldest first, excluding today."""
+def fetch_daily_history(symbols, today):
+    """Recent daily closes and volumes per symbol, oldest first, excluding today."""
     start = (datetime.fromisoformat(today) - timedelta(days=45)).date().isoformat()
-    closes = {}
+    closes, volumes = {}, {}
     for part in chunks(symbols, 100):
         token = None
         while True:
@@ -109,10 +111,11 @@ def fetch_daily_closes(symbols, today):
                 for b in bars:
                     if b["t"][:10] < today:
                         closes.setdefault(sym, []).append(b["c"])
+                        volumes.setdefault(sym, []).append(b["v"])
             token = res.get("next_page_token")
             if not token:
                 break
-    return closes
+    return closes, volumes
 
 
 def fetch_news(symbols):
@@ -148,6 +151,25 @@ def normal_move(closes):
     return statistics.mean(moves) if len(moves) >= 5 else None
 
 
+def avg_volume(volumes):
+    v = volumes[-LOOKBACK:]
+    return statistics.mean(v) if len(v) >= 5 else None
+
+
+def session_fraction(now_et):
+    """Roughly how much of a normal day's volume has traded by now. Volume is heavy
+    near the open, so this rises faster than the clock (about 17% after 30 minutes,
+    60% by midday)."""
+    open_ = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    elapsed = (now_et - open_).total_seconds() / 60 / 390
+    return min(1.0, max(0.03, elapsed)) ** 0.7
+
+
+def rel_volume(volume, avg, frac):
+    """Today's volume against what a normal day would have traded by now."""
+    return round(volume / (avg * frac), 1) if avg else None
+
+
 def fade_read(price, high, low, prev):
     """Same rules as the original Outlier Board."""
     if not (high > low and prev > 0):
@@ -172,7 +194,7 @@ def fade_read(price, high, low, prev):
     return None
 
 
-def build_rows(snaps, closes, names, groups, today):
+def build_rows(snaps, closes, volumes, names, groups, today, frac):
     rows = []
     for sym, s in snaps.items():
         try:
@@ -187,12 +209,14 @@ def build_rows(snaps, closes, names, groups, today):
             continue
         pct = (price - prev) / prev * 100
         nm = normal_move(closes.get(sym, []))
+        av = avg_volume(volumes.get(sym, []))
         rows.append({
             "symbol": sym, "name": names.get(sym, ""), "group": groups.get(sym, ""),
             "price": round(price, 4), "prev": prev, "open": day["o"], "high": day["h"], "low": day["l"],
             "pct": round(pct, 2), "normal": round(nm, 2) if nm else None,
             "ratio": round(abs(pct) / nm, 1) if nm else None,
-            "volume": day["v"], "read": fade_read(price, day["h"], day["l"], prev),
+            "volume": day["v"], "rvol": rel_volume(day["v"], av, frac),
+            "read": fade_read(price, day["h"], day["l"], prev),
         })
     return rows
 
@@ -234,7 +258,8 @@ def demo_rows(names, groups):
         rows.append({"symbol": sym, "name": names[sym], "group": groups[sym], "price": round(price, 2),
                      "prev": prev, "open": prev, "high": round(hi, 2), "low": round(lo, 2),
                      "pct": round(pct, 2), "normal": normal, "ratio": round(abs(pct) / normal, 1),
-                     "volume": rnd.randint(200_000, 9_000_000), "read": fade_read(price, hi, lo, prev)})
+                     "volume": rnd.randint(200_000, 9_000_000), "rvol": round(rnd.lognormvariate(0.1, 0.6), 1),
+                     "read": fade_read(price, hi, lo, prev)})
     return rows
 
 
@@ -242,6 +267,26 @@ def demo_news(symbols):
     return {s: [{"headline": f"Why {s} shares are moving today", "url": "https://www.benzinga.com/",
                  "source": "benzinga", "time": datetime.now(timezone.utc).isoformat(), "summary": ""}]
             for s in symbols}
+
+
+# ---------- output ----------
+
+def settings():
+    return {"lookback": LOOKBACK, "unusual_ratio": UNUSUAL_RATIO, "unusual_min_pct": UNUSUAL_MIN_PCT,
+            "swinger_normal": SWINGER_NORMAL, "bigger_than_usual": BIGGER_THAN_USUAL,
+            "list_size": LIST_SIZE, "news_per_symbol": NEWS_PER_SYMBOL}
+
+
+def write_baseline(names, groups, etfs, closes, volumes, today):
+    """What the near-live worker needs to rebuild the lists from fresh prices:
+    each symbol's name, group, normal move and average volume."""
+    syms = {}
+    for s in sorted(names):
+        nm, av = normal_move(closes.get(s, [])), avg_volume(volumes.get(s, []))
+        syms[s] = [names[s], groups[s], round(nm, 3) if nm else None, round(av) if av else None]
+    with open(BASELINE_OUT, "w") as f:
+        json.dump({"date": today, "settings": settings(), "etfs": etfs, "symbols": syms}, f,
+                  separators=(",", ":"))
 
 
 # ---------- main ----------
@@ -253,7 +298,7 @@ def main():
     now_et = datetime.now(ET)
     today = now_et.date().isoformat()
 
-    close = None
+    close, closes, volumes = None, {}, {}
     if demo:
         rows = demo_rows(names, groups)
     else:
@@ -264,8 +309,8 @@ def main():
             print("Market not open; leaving the page as it is.")
             return
         snaps = fetch_snapshots(symbols)
-        closes = fetch_daily_closes(symbols, today)
-        rows = build_rows(snaps, closes, names, groups, today)
+        closes, volumes = fetch_daily_history(symbols, today)
+        rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et))
         if not rows:
             print("No trades yet today; leaving the page as it is.")
             return
@@ -282,12 +327,13 @@ def main():
         "slot": slot_label(now_et, close), "demo": demo,
         "breadth": {"up": up, "down": len(rows) - up, "total": len(rows)},
         "market": market, "unusual": unusual, "swingers": swingers,
-        "settings": {"lookback": LOOKBACK, "unusual_ratio": UNUSUAL_RATIO,
-                     "unusual_min_pct": UNUSUAL_MIN_PCT, "swinger_normal": SWINGER_NORMAL},
+        "settings": settings(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         json.dump(payload, f, separators=(",", ":"))
+    if not demo:
+        write_baseline(names, groups, etfs, closes, volumes, today)
     print(f"Wrote {OUT}: {len(unusual)} unusual, {len(swingers)} swingers, {len(rows)} scanned.")
 
 
