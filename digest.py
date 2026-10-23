@@ -310,6 +310,7 @@ def main():
             return
         snaps = fetch_snapshots(symbols)
         closes, volumes = fetch_daily_history(symbols, today)
+        write_baseline(names, groups, etfs, closes, volumes, today)
         rows = build_rows(snaps, closes, volumes, names, groups, today, session_fraction(now_et))
         if not rows:
             print("No trades yet today; leaving the page as it is.")
@@ -332,8 +333,6 @@ def main():
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         json.dump(payload, f, separators=(",", ":"))
-    if not demo:
-        write_baseline(names, groups, etfs, closes, volumes, today)
     print(f"Wrote {OUT}: {len(unusual)} unusual, {len(swingers)} swingers, {len(rows)} scanned.")
 
 
