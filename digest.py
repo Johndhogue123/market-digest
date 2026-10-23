@@ -111,19 +111,27 @@ def fetch_daily_closes(symbols, today):
 
 
 def fetch_news(symbols):
+    """Latest headlines per symbol. Articles about one or two companies rank
+    ahead of market roundups that tag dozens of tickers."""
     since = (datetime.now(timezone.utc) - timedelta(hours=36)).strftime("%Y-%m-%dT%H:%M:%SZ")
     wanted = set(symbols)
-    by_sym = {s: [] for s in symbols}
-    for part in chunks(list(symbols), 20):
+    found = {s: {} for s in symbols}
+    for part in chunks(list(symbols), 10):
         res = get(DATA_URL, "/v1beta1/news", {"symbols": ",".join(part), "start": since,
                                              "limit": 50, "sort": "desc"})
         for a in res.get("news", []):
+            tagged = a.get("symbols", [])
             item = {"headline": a.get("headline", ""), "url": a.get("url", ""),
                     "source": a.get("source", ""), "time": a.get("created_at", ""),
-                    "summary": (a.get("summary") or "")[:280]}
-            for s in a.get("symbols", []):
-                if s in wanted and len(by_sym[s]) < NEWS_PER_SYMBOL and item["url"] not in [x["url"] for x in by_sym[s]]:
-                    by_sym[s].append(item)
+                    "summary": (a.get("summary") or "")[:280], "focus": len(tagged)}
+            for s in tagged:
+                if s in wanted and item["url"]:
+                    found[s].setdefault(item["url"], item)
+    by_sym = {}
+    for s, items in found.items():
+        ranked = sorted(items.values(), key=lambda x: x["time"], reverse=True)
+        ranked.sort(key=lambda x: x["focus"] > 3)  # stable: focused first, newest within each
+        by_sym[s] = ranked[:NEWS_PER_SYMBOL]
     return by_sym
 
 
