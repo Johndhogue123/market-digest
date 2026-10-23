@@ -541,6 +541,7 @@ def main():
     else:
         hours = market_hours(today)
         close = hours[1] if hours else None
+        write_exchanges(symbols, today)
         pre_window = hours and hours[0] - timedelta(minutes=PREMARKET_START_MIN) <= now_et < hours[0]
         if pre_window or (force and hours and now_et < hours[0]):
             run_premarket(symbols, names, groups, now_et, hours[0])
@@ -553,7 +554,6 @@ def main():
         closes, volumes, ranges = fetch_daily_history(symbols, today)
         earnings = fetch_earnings(symbols, today)
         write_baseline(names, groups, etfs, closes, volumes, ranges, today, earnings)
-        write_exchanges(symbols, today)
         write_news(symbols, now_et)
         rows = build_rows(snaps, closes, volumes, ranges, names, groups, today, session_fraction(now_et), earnings, close)
         if not rows:
