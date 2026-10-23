@@ -56,6 +56,7 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .tag { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--accent); color: var(--accent); }
 .tag.solid { background: var(--accent); color: var(--accent-ink); }
 .tag.dim { border-color: var(--line); color: var(--muted); }
+.tag.earn { border-style: dashed; }
 .tag.new { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .vol { font-family: var(--font-num); font-size: 12px; color: var(--muted); white-space: nowrap; }
 .vol.hot { color: var(--accent); font-weight: 600; }
@@ -163,6 +164,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function row(r, tab) {
     var fresh = tab === "unusual" && isNew(r.symbol);
     var tags = fresh ? '<span class="tag new">New</span>' : "";
+    if (r.earn) tags += '<span class="tag earn">' + esc(r.earn) + '</span>';
     if (r.read && r.read.kind === "fade") tags += '<span class="tag solid">Fading</span>';
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
     if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "" : "dim") + '">' + esc(r.usual) + '</span>';
