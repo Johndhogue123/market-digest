@@ -310,7 +310,7 @@ body.compact .spark, body.compact .cols .list > .row:first-child .spark, body.co
 body.compact .peek { padding-top: 3px; margin-top: 0; border-top: 0; font-size: 12.5px; }
 body.compact .trade { padding: 0 10px; }
 body.compact .cols { gap: 14px; }
-/* ---- Round 4: earnings strip, volume spike tag, since-you-looked badge, TV mode, night dim ---- */
+/* ---- Round 4: earnings strip, volume spike tag, since-you-looked badge, TV mode ---- */
 .earnbox { order: 3; }
 .alerts[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .elist { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
@@ -326,7 +326,6 @@ body.compact .cols { gap: 14px; }
 .chip { position: relative; }
 .chip > .spark { position: absolute; top: 7px; right: 8px; width: 44px; height: 16px; }
 body.tv .wrap { zoom: 1.3; } body.tv .glance { zoom: 1.3; }
-body.night .wrap, body.night .glance { filter: brightness(.78); }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
@@ -338,7 +337,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     <div><h1>Market Digest</h1><p class="sub" id="asof">Loading</p><div class="status" id="status"></div></div>
     <div class="top-btns">
       <button class="alerts" id="tv" title="Big type for a wall monitor">TV</button>
-      <button class="alerts" id="night" aria-pressed="false" title="Dim the page overnight, when the market is closed">Night dim</button>
       <button class="alerts" id="density" title="Tighter spacing for a crowded screen">Compact</button>
       <button class="alerts" id="theme" title="Switch between light and dark">Theme</button>
       <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
@@ -689,19 +687,13 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     box.hidden = false;
   }
 
-  // ---- TV mode and night dim ----
-  var tvBtn = $("tv"), nightBtn = $("night");
+  // ---- TV mode ----
+  var tvBtn = $("tv");
   if (store("md-tv") === true) document.body.classList.add("tv");
   tvBtn.setAttribute("aria-pressed", document.body.classList.contains("tv"));
   tvBtn.addEventListener("click", function () {
     var on = document.body.classList.toggle("tv"); store("md-tv", on); tvBtn.setAttribute("aria-pressed", on);
   });
-  var nightOn = store("md-night") === true;
-  function applyNight() {
-    nightBtn.setAttribute("aria-pressed", nightOn);
-    document.body.classList.toggle("night", nightOn && session() === "Closed" && currentTheme() === "dark");
-  }
-  nightBtn.addEventListener("click", function () { nightOn = !nightOn; store("md-night", nightOn); applyNight(); });
 
   // ---- Since you looked: remember each % when the tab goes to the background ----
   document.addEventListener("visibilitychange", function () {
@@ -752,7 +744,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var spy = idx.filter(function (r) { return r.symbol === "SPY"; })[0];
     document.title = (nNew ? "(" + nNew + ") " : "") + (spy ? ses + " · SPY " + pct(spy.pct) + " · " : "") + "Market Digest";
     paintFavicon(spy ? spy.pct : null);
-    applyNight();
     renderEarnings();
     $("glance").innerHTML = '<b>Market Digest</b><span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
       idx.map(function (r) { return '<span class="g-idx"><span>' + esc(r.symbol) + '</span><span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>'; }).join("") +
