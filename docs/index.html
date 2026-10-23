@@ -305,11 +305,18 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       var it = { h: n.h, u: n.u, t: n.t, tk: tk };
       seen[n.u] = seen[k] = it; items.push(it);
     });
-    items.sort(function (a, b) { return a.t < b.t ? 1 : -1; });
+    // Priority: watchlist first, then the biggest move today, then newest.
+    var q = Object.assign({}, move, (data && data.quotes) || {});
+    function rank(n) {
+      var w = n.tk.some(function (x) { return watch.indexOf(x) >= 0; }) ? 1 : 0;
+      var m = Math.max.apply(null, n.tk.map(function (x) { return q[x] ? Math.abs(q[x][2]) : 0; }));
+      return [w, m];
+    }
+    items.forEach(function (n) { n.r = rank(n); });
+    items.sort(function (a, b) { return b.r[0] - a.r[0] || b.r[1] - a.r[1] || (a.t < b.t ? 1 : -1); });
     box.hidden = !items.length;
     box.classList.toggle("all", newsAll);
     $("newsList").innerHTML = items.slice(0, newsAll ? NEWS_LONG : NEWS_SHORT).map(function (n) {
-      var q = Object.assign({}, move, (data && data.quotes) || {});
       var chips = n.tk.slice(0, 2).map(function (x) {
         var v = q[x]; // quotes: [name, price, pct, ratio, rvol]
         return '<span><b>' + esc(x) + '</b> ' + (v ? '<i class="' + cls(v[2]) + '">' + pct(v[2]) + '</i>' : '') + '</span>';
