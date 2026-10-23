@@ -1,0 +1,23 @@
+symbol,name,group
+SPY,S&P 500,Index
+QQQ,Nasdaq 100,Index
+IWM,Russell 2000,Index
+DIA,Dow Jones,Index
+XLK,Technology,Sector
+XLF,Financials,Sector
+XLV,Health Care,Sector
+XLY,Consumer Discretionary,Sector
+XLP,Consumer Staples,Sector
+XLE,Energy,Sector
+XLI,Industrials,Sector
+XLB,Materials,Sector
+XLU,Utilities,Sector
+XLRE,Real Estate,Sector
+XLC,Communication Services,Sector
+SMH,Semiconductors,Theme
+TLT,20+ Year Treasuries,Theme
+GLD,Gold,Theme
+TQQQ,Nasdaq 100 3x,Leveraged
+SQQQ,Nasdaq 100 -3x,Leveraged
+SOXL,Semiconductors 3x,Leveraged
+SOXS,Semiconductors -3x,Leveraged
