@@ -14,8 +14,13 @@
   --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
 }
+:root[data-theme="light"] {
+  --bg: #f4f5f7; --surface: #fff; --surface-2: #eceff3; --line: #d9dee6;
+  --fg: #151a22; --muted: #5d6879; --accent: #b87a0c; --up: #0f8a5f; --down: #c93a49;
+  --up-bg: rgba(15,138,95,.12); --down-bg: rgba(201,58,73,.1); color-scheme: light;
+}
 @media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
+  :root:not([data-theme]) {
     --bg: #f4f5f7; --surface: #fff; --surface-2: #eceff3; --line: #d9dee6;
     --fg: #151a22; --muted: #5d6879; --accent: #b87a0c; --up: #0f8a5f; --down: #c93a49;
     --up-bg: rgba(15,138,95,.12); --down-bg: rgba(201,58,73,.1); color-scheme: light;
@@ -62,6 +67,7 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .vol.hot { color: var(--accent); font-weight: 600; }
 .bar-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .alerts { font: inherit; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+.top-btns { display: flex; gap: 8px; }
 .alerts[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 .ratio { font-family: var(--font-num); font-size: 12px; color: var(--muted); justify-self: end; white-space: nowrap; }
 .detail { border-top: 1px solid var(--line); padding: 12px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-2); }
@@ -99,7 +105,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 <main class="wrap">
   <header class="bar-top">
     <div><h1>Market Digest</h1><p class="sub" id="asof">Loading</p></div>
-    <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
+    <div class="top-btns">
+      <button class="alerts" id="theme" title="Switch between light and dark">Theme</button>
+      <button class="alerts" id="alerts" aria-pressed="false" title="Chime and desktop pop-up when a stock joins Unusual moves">Alerts off</button>
+    </div>
   </header>
   <div class="demo" id="demo" hidden>Preview with made-up numbers. Real data appears after the first scheduled run.</div>
 
@@ -218,6 +227,22 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", x === b); });
     render();
   });
+
+  // ---- Theme: follows the system until the toggle is used, then remembered ----
+  var themeBtn = $("theme"), themeMq = window.matchMedia("(prefers-color-scheme: light)");
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") || (themeMq.matches ? "light" : "dark");
+  }
+  function paintTheme() { themeBtn.textContent = currentTheme() === "light" ? "Dark mode" : "Light mode"; }
+  var savedTheme = store("md-theme");
+  if (savedTheme === "light" || savedTheme === "dark") document.documentElement.setAttribute("data-theme", savedTheme);
+  themeBtn.addEventListener("click", function () {
+    var next = currentTheme() === "light" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    store("md-theme", next); paintTheme();
+  });
+  if (themeMq.addEventListener) themeMq.addEventListener("change", paintTheme);
+  paintTheme();
 
   // ---- "New" flags and alerts (Unusual moves only; Big swingers reshuffle too often) ----
   var NEW_MS = 15 * 60000, seen = null, seenDay = null;
