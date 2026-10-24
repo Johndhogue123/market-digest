@@ -114,6 +114,8 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .recap .r-next { color: var(--muted); font-size: 13px; }
 .recap .r-rows { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: 13px; }
 .recap .r-lab { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin-right: 6px; }
+.wl-row a.tk, .nitem .nt a.tklink, .recap a.r-i { color: inherit; text-decoration: none; }
+.wl-row a.tk:hover, .nitem .nt a.tklink:hover, .recap a.r-i:hover { text-decoration: underline; }
 .recap .r-i { margin-right: 10px; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .recap .up { color: var(--up); } .recap .down { color: var(--down); }
 button.pill.jump { font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
@@ -732,8 +734,8 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
     var q = (data && data.quotes) || {};
     $("wlList").innerHTML = watch.length ? watch.map(function (sym) {
       var v = q[sym];
-      if (!v) return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
-      return '<li class="row wl-row"><span class="head"><span><span class="tk">' + esc(sym) + '</span> <span class="px">' + usd(v[1]) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
+      if (!v) return '<li class="row wl-row"><span class="head"><span><a class="tk" href="' + rh(sym) + '" target="_blank" rel="noopener" title="Open ' + esc(sym) + ' on Robinhood">' + esc(sym) + '</a> <span class="nm">' + (!data ? 'loading' : exchanges[sym] ? 'No trades yet today' : Object.keys(exchanges).length ? 'Not tracked: only S&P 500 stocks and listed ETFs' : 'No quote yet') + '</span></span></span><button class="wl-x" data-x="' + esc(sym) + '" title="Remove" aria-label="Remove ' + esc(sym) + '">✕</button></li>';
+      return '<li class="row wl-row"><span class="head"><span><a class="tk" href="' + rh(sym) + '" target="_blank" rel="noopener" title="Open ' + esc(sym) + ' on Robinhood">' + esc(sym) + '</a> <span class="px">' + usd(v[1]) + '</span> <span class="nm">' + esc(v[0]) + '</span></span>' +
         '<span class="chgwrap">' + spark(sym, null, v[2]) + '<span class="chg ' + cls(v[2]) + '">' + pct(v[2]) + '</span></span>' +
         '<span class="meta">' + trendTags(v[8], v[9], v[10], data.settings && data.settings.streak_min) + ranges(v[1], v[6], v[5], v[7]) + volTag(v[4]) + sinceTag(sym, v[2]) + '</span>' +
         '<span class="ratio">' + mvbar(v[3], cls(v[2])) + (v[3] != null ? v[3].toFixed(1) + '× normal' : '') + '</span>' + wpeek(sym) + '</span>' +
@@ -790,7 +792,7 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
     $("newsList").innerHTML = items.slice(0, newsAll ? NEWS_LONG : NEWS_SHORT).map(function (n) {
       var chips = n.tk.slice(0, 2).map(function (x) {
         var v = q[x]; // quotes: [name, price, pct, ratio, rvol]
-        return '<span><b>' + esc(x) + '</b> ' + (v ? '<em class="px">' + usd(v[1]) + '</em> <i class="' + cls(v[2]) + '">' + pct(v[2]) + '</i>' : '') + '</span>';
+        return '<span><a class="tklink" href="' + rh(x) + '" target="_blank" rel="noopener" title="Open ' + esc(x) + ' on Robinhood"><b>' + esc(x) + '</b></a> ' + (v ? '<em class="px">' + usd(v[1]) + '</em> <i class="' + cls(v[2]) + '">' + pct(v[2]) + '</i>' : '') + '</span>';
       }).join("");
       return '<div class="nitem"><span class="nt">' + chips + '</span><a href="' + esc(n.u) + '" target="_blank" rel="noopener" title="' + esc(n.h) + '">' + esc(n.h) + '</a><time>' + ago(n.t) + '</time></div>';
     }).join("");
@@ -998,7 +1000,7 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
       .sort(function (a, b) { return BENCH.indexOf(a.symbol) - BENCH.indexOf(b.symbol); });
     var seenS = {}, big = (data.unusual || []).concat(data.swingers || []).filter(function (r) { return !seenS[r.symbol] && (seenS[r.symbol] = 1); })
       .sort(function (a, b) { return Math.abs(b.pct) - Math.abs(a.pct); }).slice(0, 3);
-    var item = function (r) { return '<span class="r-i">' + esc(r.symbol) + ' <span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>'; };
+    var item = function (r) { return '<a class="r-i" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' + esc(r.symbol) + ' <span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span></a>'; };
     var b = data.breadth;
     el.innerHTML = '<div class="r-head"><b>Market closed · ' + why.toLowerCase() + '</b><span class="r-next">Reopens ' + esc(nextSession(etNow())) + '</span></div>' +
       '<div class="r-rows"><span><span class="r-lab">' + esc(fmtDay(last)) + ' session</span>' + idx.map(item).join(" ") + '</span>' +
