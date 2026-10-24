@@ -838,7 +838,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function render() {
     renderWatch();
     renderNews();
-    var nNew = closedDay() ? 0 : (data.unusual || []).filter(function (r) { return isNew(r.symbol); }).length;
+    var nNew = closedDay() ? 0 : unseenNew().length;
     renderRecap();
     $("newBadge").hidden = !nNew; $("newBadge").textContent = nNew;
     paintStatus(nNew);
@@ -896,12 +896,13 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   }
   // Clickable chip: names the newly added stocks with their % change, click jumps to them.
   function newPill(withNames) {
-    var fresh = (data.unusual || []).filter(function (r) { return isNew(r.symbol); });
+    var fresh = unseenNew();
     var names = withNames ? fresh.slice(0, 3).map(function (r) { return esc(r.symbol) + ' <span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span>'; }).join(" · ") + (fresh.length > 3 ? " +" + (fresh.length - 3) : "") : "";
     return '<button type="button" class="pill warn jump" data-jump="new" title="Jump to the newly added unusual moves">' + fresh.length + ' new unusual' + (names ? ': ' + names : '') + ' ↓</button>';
   }
   function jumpToNew() {
-    var fresh = (data.unusual || []).filter(function (r) { return isNew(r.symbol); }); if (!fresh.length) return;
+    var fresh = unseenNew(); if (!fresh.length) return;
+    markSeen(fresh);
     $("cols").setAttribute("data-active", "unusual");
     document.querySelectorAll(".tabs button").forEach(function (x) { x.setAttribute("aria-selected", x.getAttribute("data-tab") === "unusual"); });
     var idx = (data.unusual || []).indexOf(fresh[fresh.length - 1]);
@@ -1034,6 +1035,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     if (seenDay !== day) {
       var saved = store("md-seen");
       seen = saved && saved.day === day ? saved.syms : null;
+      var ack = store("md-ack");
+      acked = ack && ack.day === day ? ack.syms : {};
       seenDay = day;
     }
     var fresh = [];
@@ -1047,6 +1050,13 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     return fresh;
   }
   function isNew(sym) { return !!(seen && seen[sym] && Date.now() - seen[sym] < NEW_MS); }
+  // The top chip and tab badge count only arrivals not yet clicked; the rows keep their New tag for the full 15 minutes.
+  var acked = {};
+  function unseenNew() { return (data.unusual || []).filter(function (r) { return isNew(r.symbol) && !acked[r.symbol]; }); }
+  function markSeen(rows) {
+    rows.forEach(function (r) { acked[r.symbol] = 1; });
+    store("md-ack", { day: seenDay, syms: acked });
+  }
 
   function showAlerts() {
     $("alerts").textContent = alertsOn ? "Alerts on" : "Alerts off";
@@ -1122,7 +1132,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   // Keep the "N min old" wording honest between refreshes (and show the warning even when no refresh arrives at all).
   setInterval(function () {
     if (!data) return;
-    var nNew = closedDay() ? 0 : (data.unusual || []).filter(function (r) { return isNew(r.symbol); }).length;
+    var nNew = closedDay() ? 0 : unseenNew().length;
     paintAsof(); paintStatus(nNew); paintGlance(nNew);
   }, 30000);
   getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; if (data) renderWatch(); }).catch(function () {});
