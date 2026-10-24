@@ -56,6 +56,9 @@ STREAK_MIN = 3             # this many days in a row the same way earns a "3-day
 TREND_TAIL = 6             # recent closes kept in baseline.json so the worker can work out streaks
 RANK_BOOST = 1.25          # unusual moves with a streak or a 52-week extreme sort a little higher
 AFTER_HOURS_MIN = 60      # keep scanning this long after the close (to 5pm ET, about when IEX stops trading)
+MIN_COVERAGE = 0.8         # a scan needs snapshots and history for this share of the universe, or it is not published
+ABSURD_PCT = 60.0          # a day move bigger than this counts as a suspect row...
+MAX_BAD_ROWS_FRAC = 0.02   # ...and more than this share of suspect rows blocks the publish
 THIN_SHARES = 2000         # under this many IEX shares traded pre-market, flag the price as thin
 
 
@@ -89,6 +92,32 @@ def get(base, path, params):
     })
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.load(resp)
+
+
+def write_json(path, obj):
+    """Write via a temp file and rename, so a crash mid-write never leaves a half-written file."""
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, separators=(",", ":"))
+    os.replace(tmp, path)
+
+
+class BadData(Exception):
+    """The fetched data looks wrong; keep publishing the previous good files."""
+
+
+def validate_scan(symbols, snaps, closes, rows=None):
+    """Refuse to publish when Alpaca's reply is clearly broken (partial, empty or nonsense), so one bad
+    fetch can't overwrite good data. Thresholds are loose on purpose: a thin early-open scan must pass."""
+    n = len(symbols)
+    if len(snaps) < MIN_COVERAGE * n:
+        raise BadData(f"only {len(snaps)} of {n} snapshots came back")
+    if closes is not None and len(closes) < MIN_COVERAGE * n:
+        raise BadData(f"daily history for only {len(closes)} of {n} symbols")
+    if rows is not None and rows:
+        bad = [r["symbol"] for r in rows if not (r["price"] > 0 and r["prev"] > 0) or abs(r["pct"]) > ABSURD_PCT]
+        if len(bad) > MAX_BAD_ROWS_FRAC * len(rows):
+            raise BadData(f"{len(bad)} of {len(rows)} rows have impossible prices or moves (e.g. {bad[:3]})")
 
 
 def chunks(seq, n):
@@ -189,8 +218,7 @@ def write_news(symbols, now_et):
     except Exception as e:
         print(f"News pool failed, skipping: {e}")
         return
-    with open(NEWS_OUT, "w") as f:
-        json.dump({"generated": now_et.isoformat(timespec="minutes"), "news": list(items.values())}, f, separators=(",", ":"))
+    write_json(NEWS_OUT, {"generated": now_et.isoformat(timespec="minutes"), "news": list(items.values())})
     print(f"Wrote {NEWS_OUT}: {len(items)} headlines.")
 
 
@@ -246,8 +274,7 @@ def write_earnings_strip(names, volumes, today, now_et):
     for d in dates:
         day = sorted((e for e in items if e["date"] == d), key=lambda e: -size(e["symbol"]))[:14]
         out += [{"s": e["symbol"], "n": names[e["symbol"]], "d": d, "h": e.get("hour") or ""} for e in day]
-    with open(EARNINGS_OUT, "w") as f:
-        json.dump({"generated": now_et.isoformat(timespec="minutes"), "items": out}, f, separators=(",", ":"))
+    write_json(EARNINGS_OUT, {"generated": now_et.isoformat(timespec="minutes"), "items": out})
     print(f"Wrote {EARNINGS_OUT}: {len(out)} reports.")
 
 
@@ -441,8 +468,7 @@ def write_sparks(symbols, start_et, now_et, end_et=None):
     except Exception as e:  # noqa: BLE001
         print(f"Sparklines skipped: {e}")
         return
-    with open(SPARK_OUT, "w") as f:
-        json.dump({"generated": now_et.isoformat(timespec="minutes"), "s": {k: v[-90:] for k, v in out.items() if len(v) >= 2}}, f, separators=(",", ":"))
+    write_json(SPARK_OUT, {"generated": now_et.isoformat(timespec="minutes"), "s": {k: v[-90:] for k, v in out.items() if len(v) >= 2}})
     print(f"Wrote {SPARK_OUT}: {len(out)} symbols.")
 
 
@@ -476,6 +502,7 @@ def build_gaps(snaps, closes, names, groups, open_et):
 def run_premarket(symbols, names, groups, now_et, open_et):
     snaps = fetch_snapshots(symbols)
     closes, _, _ = fetch_daily_history(symbols, open_et.date().isoformat())
+    validate_scan(symbols, snaps, closes)
     gaps = build_gaps(snaps, closes, names, groups, open_et)
     pm = fetch_premarket_bars([r["symbol"] for r in gaps], now_et.replace(hour=4, minute=0, second=0, microsecond=0),
                               open_et.date().isoformat()) if gaps else {}
@@ -490,8 +517,7 @@ def run_premarket(symbols, names, groups, now_et, open_et):
                "open": open_et.isoformat(timespec="minutes"),
                "settings": {"min_pct": GAP_MIN_PCT, "min_ratio": GAP_MIN_RATIO, "thin_shares": THIN_SHARES},
                "gaps": gaps, "scanned": len(snaps)}
-    with open(PREMARKET_OUT, "w") as f:
-        json.dump(payload, f, separators=(",", ":"))
+    write_json(PREMARKET_OUT, payload)
     print(f"Wrote {PREMARKET_OUT}: {len(gaps)} gaps from {len(snaps)} snapshots.")
 
 
@@ -553,9 +579,7 @@ def write_baseline(names, groups, etfs, closes, volumes, ranges, today, earnings
         nm, av = normal_move(closes.get(s, [])), avg_volume(volumes.get(s, []))
         syms[s] = [names[s], groups[s], round(nm, 3) if nm else None, round(av) if av else None,
                   [round(x, 4) for x in ranges[s]] if s in ranges else None, closes.get(s, [])[-TREND_TAIL:]]
-    with open(BASELINE_OUT, "w") as f:
-        json.dump({"date": today, "settings": settings(), "etfs": etfs, "earnings": earnings, "symbols": syms}, f,
-                  separators=(",", ":"))
+    write_json(BASELINE_OUT, {"date": today, "settings": settings(), "etfs": etfs, "earnings": earnings, "symbols": syms})
 
 
 # ---------- main ----------
@@ -623,13 +647,14 @@ def main():
         snaps = fetch_snapshots(symbols)
         closes, volumes, ranges = fetch_daily_history(symbols, today)
         earnings = fetch_earnings(symbols, today)
-        write_baseline(names, groups, etfs, closes, volumes, ranges, today, earnings)
-        write_news(symbols, now_et)
-        write_earnings_strip(names, volumes, today, now_et)
         rows = build_rows(snaps, closes, volumes, ranges, names, groups, today, session_fraction(now_et), earnings, close)
         if not rows:
             print("No trades yet today; leaving the page as it is.")
             return
+        validate_scan(symbols, snaps, closes, rows)  # nothing below is written unless this passes
+        write_baseline(names, groups, etfs, closes, volumes, ranges, today, earnings)
+        write_news(symbols, now_et)
+        write_earnings_strip(names, volumes, today, now_et)
 
     unusual, swingers, market = pick_lists(rows, etfs)
     listed = sorted({r["symbol"] for r in unusual + swingers})
@@ -650,10 +675,13 @@ def main():
         "settings": settings(),
     }
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w") as f:
-        json.dump(payload, f, separators=(",", ":"))
+    write_json(OUT, payload)
     print(f"Wrote {OUT}: {len(unusual)} unusual, {len(swingers)} swingers, {len(rows)} scanned.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BadData as e:
+        # Exit cleanly (no red run every 5 minutes); the page's stale-data warning shows if this keeps happening.
+        print(f"::warning::Not publishing, data looks wrong: {e}")
