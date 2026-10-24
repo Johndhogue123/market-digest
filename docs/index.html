@@ -7,23 +7,33 @@
 <link rel="icon" id="fav" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27%238a96a8%27/%3E%3C/svg%3E">
 <link rel="preload" href="fonts/PublicSans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-/* ---- Quick filters ---- */
-.filters { position: sticky; top: 42px; z-index: 15; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0; padding: 7px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; font-size: 12px; }
-.filters .fg { display: inline-flex; align-items: center; gap: 4px; }
-.filters .fl { color: var(--muted); font-weight: 600; margin-right: 2px; }
-.filters button { font: inherit; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
-.filters button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); border-color: var(--muted); }
-.filters .fg.on button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+/* ---- Quick filters: hidden behind one button until opened; active filters stay visible as removable chips ---- */
+.filters .fbar { display: flex; align-items: center; gap: 6px; flex: 1 1 100%; min-width: 0; }
+.filters .ftoggle { border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+.filters .ftoggle[aria-expanded="true"] { background: var(--surface-2); }
+.filters .achip { background: var(--accent); color: var(--accent-ink, #fff); padding: 3px 4px 3px 9px; }
+.filters .achip i { font-style: normal; opacity: .75; padding: 0 5px; }
+.filters .fpanel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; flex: 1 1 100%; padding-top: 6px; border-top: 1px solid var(--line); margin-top: 2px; }
+.filters .fpanel[hidden] { display: none; }
+.filters { position: sticky; top: 42px; z-index: 15; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin: 10px 0; padding: 6px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; font-size: 12px; }
+.filters .fg { display: inline-flex; align-items: center; gap: 7px; }
+.filters .fl { color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .filters .fg.on .fl { color: var(--fg); }
-.filters .fcount { margin-left: auto; color: var(--muted); font-weight: 600; }
+.filters .seg { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 2px; gap: 1px; }
+.filters button { font: inherit; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 6px; border: 0; background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.filters button:hover { color: var(--fg); }
+.filters button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 0 0 1px var(--line), var(--shadow); }
+.filters .fg.on button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink, #fff); box-shadow: none; }
+.filters .fcount { margin-left: auto; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
 .filters .fcount.active { color: var(--fg); }
-.filters .freset { border-style: dashed; }
+.filters .freset { color: var(--accent); background: transparent; padding: 3px 4px; }
 @media (max-width: 640px) {
-  .filters { top: 36px; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding: 6px 8px; margin: 6px 0; scrollbar-width: none; }
-  .filters::-webkit-scrollbar { display: none; }
-  .filters .fg, .filters .fcount, .filters .freset { flex: none; }
-  .filters .fcount { order: -2; margin-left: 0; }
-  .filters .freset { order: -1; }
+  .filters { top: 36px; padding: 5px 8px; margin: 6px 0; }
+  .filters { flex-wrap: wrap; overflow: visible; }
+  .filters .fbar { overflow-x: auto; scrollbar-width: none; }
+  .filters .fbar > * { flex: none; }
+  .filters .fpanel { gap: 8px 14px; }
+}
 }
 
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/IBMPlexMono-400.woff2) format("woff2"); }
@@ -844,18 +854,26 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     return true;
   }
   function filtersOn() { for (var k in FDEF) if (filt[k] !== FDEF[k]) return true; return false; }
+  var fOpen = false;
+  function chipText(o, v) { for (var i = 0; i < o[2].length; i++) if (String(o[2][i][0]) === String(v)) return o[2][i][1]; return v; }
   function paintFilters(shown, total) {
-    var h = FOPTS.map(function (o) {
-      return '<span class="fg' + (filt[o[0]] !== FDEF[o[0]] ? " on" : "") + '"><span class="fl">' + o[1] + '</span>' +
-        o[2].map(function (c) { return '<button type="button" data-f="' + o[0] + '" data-v="' + c[0] + '" aria-pressed="' + (String(filt[o[0]]) === String(c[0])) + '">' + c[1] + '</button>'; }).join("") + '</span>';
-    }).join("");
     var on = filtersOn();
-    h += '<span class="fcount' + (on ? " active" : "") + '">' + (on ? "Showing " + shown + " of " + total : total + " shown") + '</span>' + (on ? '<button type="button" class="freset" data-f="reset">Reset</button>' : "");
-    $("filters").innerHTML = h;
+    var chips = FOPTS.filter(function (o) { return filt[o[0]] !== FDEF[o[0]]; }).map(function (o) {
+      return '<button type="button" class="achip" data-f="clear" data-k="' + o[0] + '" title="Remove this filter">' + chipText(o, filt[o[0]]) + '<i>\u2715</i></button>';
+    }).join("");
+    var panel = FOPTS.map(function (o) {
+      return '<span class="fg' + (filt[o[0]] !== FDEF[o[0]] ? " on" : "") + '"><span class="fl">' + o[1] + '</span><span class="seg">' +
+        o[2].map(function (c) { return '<button type="button" data-f="' + o[0] + '" data-v="' + c[0] + '" aria-pressed="' + (String(filt[o[0]]) === String(c[0])) + '">' + c[1] + '</button>'; }).join("") + '</span></span>';
+    }).join("");
+    $("filters").innerHTML = '<div class="fbar"><button type="button" class="ftoggle" data-f="toggle" aria-expanded="' + fOpen + '">Filters ' + (fOpen ? "\u25b4" : "\u25be") + '</button>' + chips +
+      '<span class="fcount' + (on ? " active" : "") + '">' + (on ? "Showing " + shown + " of " + total : "") + '</span>' + (on ? '<button type="button" class="freset" data-f="reset">Reset</button>' : "") + '</div>' +
+      '<div class="fpanel"' + (fOpen ? "" : " hidden") + '>' + panel + '</div>';
   }
   $("filters").addEventListener("click", function (e) {
     var b = e.target.closest("button[data-f]"); if (!b) return;
     var k = b.getAttribute("data-f");
+    if (k === "toggle") { fOpen = !fOpen; if (data) render(); return; }
+    if (k === "clear") { var ck = b.getAttribute("data-k"); filt[ck] = FDEF[ck]; store("md-filters", filt); if (data) render(); return; }
     if (k === "reset") { for (var d in FDEF) filt[d] = FDEF[d]; }
     else { var v = b.getAttribute("data-v"); filt[k] = typeof FDEF[k] === "number" ? Number(v) : v; }
     store("md-filters", filt);
