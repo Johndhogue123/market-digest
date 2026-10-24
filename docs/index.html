@@ -36,6 +36,7 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(-
 .wrap { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
 h1 { margin: 0; font-size: 24px; letter-spacing: -.01em; }
 h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.sub.stale { color: var(--accent); font-weight: 600; }
 .sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .demo { border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
 .strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
@@ -604,6 +605,14 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     if (closedDay()) return "Closed";
     return m >= 570 && m < c ? "Open" : m >= 240 && m < 570 ? "Pre-market" : m >= c && m < c + 240 ? "After hours" : "Closed";
   }
+  // Minutes the data is out of date, or 0 when that is fine. Only judged while the market is open, and not in the first
+  // STALE_MIN minutes after the open (the first scan is still on its way). Digest and worker both refresh every 1-5 minutes.
+  var STALE_MIN = 10;
+  function staleMin() {
+    if (!data || data.demo || session() !== "Open") return 0;
+    var age = (Date.now() - new Date(data.generated)) / 60000, sinceOpen = etNow().m - 570;
+    return Math.min(age, sinceOpen) > STALE_MIN ? Math.round(age) : 0;
+  }
   function rh(sym) { return "https://robinhood.com/stocks/" + encodeURIComponent(sym); }
 
   // Today's path in 72x24: line coloured by the day's direction, dashed line at yesterday's close.
@@ -862,11 +871,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function paintGlance(nNew) {
     var ses = session(), idx = (data.market || []).filter(function (r) { return r.symbol === "SPY" || r.symbol === "QQQ"; });
     var spy = idx.filter(function (r) { return r.symbol === "SPY"; })[0];
-    document.title = (nNew ? "(" + nNew + ") " : "") + (spy ? ses + " · SPY " + pct(spy.pct) + " · " : "") + "Market Digest";
+    document.title = (staleMin() ? "⚠ " : "") + (nNew ? "(" + nNew + ") " : "") + (spy ? ses + " · SPY " + pct(spy.pct) + " · " : "") + "Market Digest";
     paintFavicon(spy ? spy.pct : null);
     renderEarnings();
     $("glance").innerHTML = '<b>Market Digest</b><span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
       idx.map(function (r) { return '<span class="g-idx"><span>' + esc(r.symbol) + '</span><span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>'; }).join("") +
+      (staleMin() ? '<span class="pill warn">⚠ Stale · ' + staleMin() + ' min</span>' : "") +
       (nNew ? newPill(false) : "") +
       '<span class="g-time">' + esc($("asof").textContent) + '</span>';
   }
@@ -880,7 +890,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var ses = session(), live = data && data.live;
     if (closedDay()) { $("status").innerHTML = '<span class="pill">Market closed · ' + closedDay().toLowerCase() + '</span>'; return; }
     $("status").innerHTML = '<span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
-      '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>' +
+      (staleMin() ? '<span class="pill warn stale-pill" title="The page has not received fresh numbers recently">⚠ Stale · ' + staleMin() + ' min old</span>'
+        : '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>') +
       (nNew ? newPill(true) : "");
   }
   // Clickable chip: names the newly added stocks with their % change, click jumps to them.
@@ -948,13 +959,17 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
         '<div class="x">' + (r.ratio != null ? r.ratio.toFixed(1) + '× · ' : '') + usd(r.price) + '</div>' + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + spark(r.symbol, r.prev, r.pct) + '</a>';
     }).join("");
   }
-  function boot(d) {
-    data = d;
-    notify(track(d));
-    var when = new Date(d.generated);
+  function paintAsof() {
+    var d = data, when = new Date(d.generated), stale = staleMin();
     $("asof").textContent = (closedDay() ? "Last session · " : d.slot === "After hours" ? "After hours (thin) · " : d.slot === "Close" ? "Closing update · " : d.live ? "Live · updated " : "Updated ") +
       when.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) +
       " (" + ago(d.generated) + ")";
+    $("asof").classList.toggle("stale", stale > 0);
+  }
+  function boot(d) {
+    data = d;
+    notify(track(d));
+    paintAsof();
     $("demo").hidden = !d.demo;
     var b = d.breadth, upW = b.total ? b.up / b.total * 100 : 0;
     $("breadth").innerHTML = '<i style="width:' + upW + '%;background:var(--up)"></i><i style="width:' + (100 - upW) + '%;background:var(--down)"></i>';
@@ -1104,6 +1119,12 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     }).catch(function () { if (!first) return digest(); }).catch(failed);
   }
   function loadMarket() { getJSON("market.json").then(function (m) { mkt = m; if (data) boot(data); }).catch(function () {}); }
+  // Keep the "N min old" wording honest between refreshes (and show the warning even when no refresh arrives at all).
+  setInterval(function () {
+    if (!data) return;
+    var nNew = closedDay() ? 0 : (data.unusual || []).filter(function (r) { return isNew(r.symbol); }).length;
+    paintAsof(); paintStatus(nNew); paintGlance(nNew);
+  }, 30000);
   getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; if (data) renderWatch(); }).catch(function () {});
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
     loadMarket();
