@@ -430,6 +430,25 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   .glance { padding: 6px 12px; gap: 4px 12px; flex-wrap: nowrap; overflow: hidden; white-space: nowrap; font-size: 12.5px; }
   .glance .g-time { display: none; }
 }
+/* ---- Motion: live dot, big-mover glow, sparkline draw-in, mood tint, reorder (all off under reduced motion) ---- */
+.ld { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: 1px; }
+.pill.on .ld { animation: ld-pulse 2s ease-out infinite; }
+@keyframes ld-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+.row { position: relative; }
+.row.big::after { content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit; box-shadow: inset 0 0 26px -6px var(--bigc); opacity: .35; animation: breathe 3.2s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: 1; } }
+.spark path.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw-in .9s ease-out forwards; }
+@keyframes draw-in { to { stroke-dashoffset: 0; } }
+.spark circle { transform-box: fill-box; transform-origin: center; }
+.spark circle.live { animation: dot-pulse 2s ease-in-out infinite; }
+@keyframes dot-pulse { 50% { transform: scale(1.7); opacity: .6; } }
+body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 260px; z-index: -1; pointer-events: none;
+  background: linear-gradient(180deg, var(--moodc, transparent), transparent); opacity: var(--moodo, 0); transition: opacity 1.2s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .pill.on .ld, .row.big::after, .spark path.draw, .spark circle.live { animation: none; }
+  .spark path.draw { stroke-dasharray: none; stroke-dashoffset: 0; }
+  .row.big::after { opacity: .6; } body::before { transition: none; }
+}
 </style>
 </head>
 <body>
@@ -491,7 +510,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 </main>
 <script>
 (function () {
-  var data = null, open = {}, showAll = {}, TOP_N = 10;
+  var data = null, open = {}, showAll = {}, TOP_N = 10, BIG = 4;   // BIG: rows at 4x+ their normal swing glow softly
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
   function pct(p) { return (p > 0 ? "+" : "") + p.toFixed(2) + "%"; }
@@ -617,6 +636,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 
   // Today's path in 72x24: line coloured by the day's direction, dashed line at yesterday's close.
   var sparks = {};
+  var drawn = {}, sparkNew = [];
   function spark(sym, prev, pctNow) {
     var a = sparks[sym]; if (!a || a.length < 2) return "";
     var lo = Math.min.apply(null, a), hi = Math.max.apply(null, a);
@@ -624,9 +644,9 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var span = hi - lo || 1, W = 72, H = 24, pad = 2;
     function y(v) { return (pad + (hi - v) / span * (H - 2 * pad)).toFixed(1); }
     var d = a.map(function (v, i) { return (i ? "L" : "M") + (i / (a.length - 1) * W).toFixed(1) + " " + y(v); }).join("");
-    var c = cls(pctNow);
+    var c = cls(pctNow), draw = !drawn[sym]; sparkNew.push(sym);
     return '<svg class="spark" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + (prev > 0 ? '<path class="ref" d="M0 ' + y(prev) + 'H' + W + '"/>' : "") +
-      '<path class="' + c + '" d="' + d + '"/><circle class="' + c + '" cx="' + W + '" cy="' + y(a[a.length - 1]) + '" r="2.4"/></svg>';
+      '<path class="' + c + (draw ? ' draw' : '') + '"' + (draw ? ' pathLength="1"' : '') + ' d="' + d + '"/><circle class="' + c + (session() === "Open" ? ' live' : '') + '" cx="' + W + '" cy="' + y(a[a.length - 1]) + '" r="2.4"/></svg>';
   }
   var ICO = {
     "new": '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
@@ -665,7 +685,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     if (r.read && r.read.kind === "recover") tags += '<span class="tag">Recovering</span>';
     if (tab === "swingers") tags += '<span class="tag ' + (r.usual === "Bigger than usual" ? "solid" : "dim") + '">' + esc(r.usual) + '</span><span class="vol">usual \u00b1' + (r.normal != null ? r.normal.toFixed(1) : "?") + '%</span>';
     var isOpen = !!open[tab + ":" + r.symbol];
-    return '<li class="row' + (fresh ? ' is-new' : '') + '" data-s="' + esc(tab + ":" + r.symbol) + '"><div class="top"><button class="head" aria-expanded="' + isOpen + '">' +
+    var big = r.ratio != null && r.ratio >= BIG;
+    return '<li class="row' + (fresh ? ' is-new' : '') + (big ? ' big' : '') + '"' + (big ? ' style="--bigc:var(--' + cls(r.pct) + ')"' : '') + ' data-s="' + esc(tab + ":" + r.symbol) + '"><div class="top"><button class="head" aria-expanded="' + isOpen + '">' +
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="px">' + usd(r.price) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chgwrap">' + spark(r.symbol, r.prev, r.pct) + '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>' +
       '<span class="meta">' + tags + ranges(r.price, r.low, r.high, r.w52) +
@@ -836,6 +857,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   }
 
   function render() {
+    var before = snapRows();
     renderWatch();
     renderNews();
     var nNew = closedDay() ? 0 : unseenNew().length;
@@ -852,7 +874,40 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
         (rows.length > TOP_N ? '<li><button class="more" data-more="' + t + '" style="width:100%">' + (showAll[t] ? "Show top " + TOP_N : "Show all " + rows.length) + '</button></li>' : "")
         : '<li class="empty">Nothing unusual right now.</li>';
     });
+    sparkNew.forEach(function (k) { drawn[k] = 1; }); sparkNew = [];
     flashChanges();
+    animateRows(before);
+  }
+
+  // ---- Motion helpers (skipped under prefers-reduced-motion) ----
+  var rmq = window.matchMedia("(prefers-reduced-motion: reduce)");
+  function snapRows() {
+    var m = {};
+    document.querySelectorAll("#cols .row[data-s]").forEach(function (li) {
+      var r = li.getBoundingClientRect(); if (r.width) m[li.getAttribute("data-s")] = r.top;
+    });
+    return m;
+  }
+  // Rows glide from their old spot to the new one; rows that just entered fade in.
+  function animateRows(before) {
+    if (rmq.matches || !before || !Object.keys(before).length || !Element.prototype.animate) return;
+    document.querySelectorAll("#cols .row[data-s]").forEach(function (li) {
+      var k = li.getAttribute("data-s"), top = li.getBoundingClientRect().top;
+      if (k in before) {
+        var dy = before[k] - top;
+        if (Math.abs(dy) > 2) li.animate([{ transform: "translateY(" + dy + "px)" }, { transform: "none" }], { duration: 450, easing: "cubic-bezier(.2,.8,.2,1)" });
+      } else li.animate([{ opacity: 0, transform: "translateY(-8px)" }, { opacity: 1, transform: "none" }], { duration: 400, easing: "ease-out" });
+    });
+  }
+  // Percent text counts from the old value to the new one.
+  function roll(el, from, to) {
+    if (rmq.matches || !isFinite(from) || from === to) return;
+    var t0 = performance.now(), dur = 600;
+    (function step(t) {
+      var k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = pct(k < 1 ? from + (to - from) * e : to);
+      if (k < 1) requestAnimationFrame(step);
+    })(t0);
   }
 
   // Rows whose % moved since the last refresh flash green or red for a moment.
@@ -862,7 +917,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     document.querySelectorAll("#cols .row[data-s]").forEach(function (li) {
       var k = li.getAttribute("data-s"), c = li.querySelector(".chg"); if (!c) return;
       var v = parseFloat(c.textContent); cur[k] = v;
-      if (k in lastPct && lastPct[k] !== v) li.classList.add(v > lastPct[k] ? "flash-up" : "flash-down");
+      if (k in lastPct && lastPct[k] !== v) { li.classList.add(v > lastPct[k] ? "flash-up" : "flash-down"); roll(c, lastPct[k], v); }
     });
     lastPct = cur;
   }
@@ -890,8 +945,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var ses = session(), live = data && data.live;
     if (closedDay()) { $("status").innerHTML = '<span class="pill">Market closed · ' + closedDay().toLowerCase() + '</span>'; return; }
     $("status").innerHTML = '<span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
-      (staleMin() ? '<span class="pill warn stale-pill" title="The page has not received fresh numbers recently">⚠ Stale · ' + staleMin() + ' min old</span>'
-        : '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>') +
+      (staleMin() ? '<span class="pill warn stale-pill" title="The page has not received fresh numbers recently"><i class="ld"></i>⚠ Stale · ' + staleMin() + ' min old</span>'
+        : '<span class="pill ' + (live ? "on" : "") + '">' + (live ? '<i class="ld"></i>Live · about 1 min' : "Delayed · about 15 min") + '</span>') +
       (nNew ? newPill(true) : "");
   }
   // Clickable chip: names the newly added stocks with their % change, click jumps to them.
@@ -950,8 +1005,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       (b ? '<span><span class="r-lab">Breadth</span><span class="r-i"><span class="up">' + b.up + ' up</span> · <span class="down">' + b.down + ' down</span></span></span>' : "") +
       (big.length ? '<span><span class="r-lab">Biggest moves</span>' + big.map(item).join(" ") + '</span>' : "") + '</div>';
   }
+  var lastChip = {};
   function renderMarket() {
     if (!data) return;
+    paintMood();
     $("market").innerHTML = marketOrder(data.market).map(function (r) {
       var heat = Math.min(32, Math.round(Math.abs(r.pct) / 4 * 32));
       return '<a class="chip" style="--heat:' + heat + '%;--chipc:var(--' + cls(r.pct) + ')" href="' + rh(r.symbol) + '" target="_blank" rel="noopener" title="Open ' + esc(r.symbol) + ' on Robinhood">' +
@@ -959,6 +1016,19 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
         '<div class="p ' + cls(r.pct) + '">' + pct(r.pct) + '</div>' +
         '<div class="x">' + (r.ratio != null ? r.ratio.toFixed(1) + '× · ' : '') + usd(r.price) + '</div>' + mini(r.price, r.low, r.high) + mini52(r.price, r.w52) + spark(r.symbol, r.prev, r.pct) + '</a>';
     }).join("");
+    var cur = {};
+    document.querySelectorAll("#market .chip").forEach(function (a) {
+      var k = a.querySelector(".s").textContent, p = a.querySelector(".p"), v = parseFloat(p.textContent); cur[k] = v;
+      if (k in lastChip) roll(p, lastChip[k], v);
+    });
+    lastChip = cur;
+  }
+  // Faint wash behind the top of the page: green when SPY is up, red when down, stronger on bigger days.
+  function paintMood() {
+    var spy = (data.market || []).filter(function (r) { return r.symbol === "SPY"; })[0], st = document.body.style;
+    if (!spy || closedDay()) { st.setProperty("--moodo", 0); return; }
+    st.setProperty("--moodc", "color-mix(in srgb, var(--" + cls(spy.pct) + ") 22%, transparent)");
+    st.setProperty("--moodo", Math.min(1, 0.25 + Math.abs(spy.pct) / 1.5 * 0.75).toFixed(2));
   }
   function paintAsof() {
     var d = data, when = new Date(d.generated), stale = staleMin();
