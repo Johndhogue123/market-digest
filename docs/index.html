@@ -107,6 +107,14 @@ h2 { margin: 6px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing
 .pill.warn { color: var(--accent); border-color: var(--accent); }
 .badge { display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-size: 12px; line-height: 18px; }
 .badge[hidden] { display: none; }
+.recap { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 10px; padding: 12px 14px; margin: 10px 0 14px; }
+.recap .r-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: baseline; }
+.recap b { font-size: 15px; }
+.recap .r-next { color: var(--muted); font-size: 13px; }
+.recap .r-rows { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: 13px; }
+.recap .r-lab { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin-right: 6px; }
+.recap .r-i { margin-right: 10px; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recap .up { color: var(--up); } .recap .down { color: var(--down); }
 button.pill.jump { font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
 button.pill.jump:hover, button.pill.jump:focus-visible { filter: brightness(1.15); outline: 1px solid var(--accent); }
 .pill.jump .up { color: var(--up); } .pill.jump .down { color: var(--down); }
@@ -438,6 +446,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   </header>
   <div class="demo" id="demo" hidden>Preview with made-up numbers. Real data appears after the first scheduled run.</div>
 
+  <section class="recap" id="recap" hidden aria-label="Market closed"></section>
+
   <section class="newsbox" id="newsbox" hidden aria-label="Headlines for stocks on this page">
     <div id="newsList"></div>
     <button class="newsmore" id="newsMore" hidden></button>
@@ -572,13 +582,27 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     ((news && news.news) || []).forEach(function (n) { if (n.s.indexOf(sym) >= 0 && (!best || n.t > best.t)) best = n; });
     return best;
   }
-  // Pre-market 4:00 to 9:30am ET, open to 4pm, otherwise closed (weekends included; holidays are not known here).
+  // Today's trading calendar (docs/market.json, written by digest.py on every run): tells us about holidays and early closes.
+  var mkt = null;
+  function etNow() {
+    var o = {};
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "numeric", minute: "numeric", hour12: false }).formatToParts(new Date()).forEach(function (x) { o[x.type] = x.value; });
+    return { date: o.year + "-" + o.month + "-" + o.day, wd: o.weekday, m: (+o.hour % 24) * 60 + +o.minute };
+  }
+  // "Weekend", "Holiday", or null on a trading day (and when the calendar file hasn't loaded, so a missing file never hides live data).
+  function closedDay() {
+    var t = etNow();
+    if (t.wd === "Sat" || t.wd === "Sun") return "Weekend";
+    return mkt && mkt.date === t.date && mkt.closed ? "Holiday" : null;
+  }
+  function closeMinute(t) {
+    return mkt && mkt.date === t.date && mkt.close ? +mkt.close.slice(11, 13) * 60 + +mkt.close.slice(14, 16) : 960;
+  }
+  // Pre-market 4:00 to 9:30am ET, open to the close (4pm, earlier on half days), then after hours until 8pm-ish.
   function session() {
-    var p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "numeric", hour12: false }).formatToParts(new Date()), o = {};
-    p.forEach(function (x) { o[x.type] = x.value; });
-    var m = (+o.hour % 24) * 60 + +o.minute;
-    if (o.weekday === "Sat" || o.weekday === "Sun") return "Closed";
-    return m >= 570 && m < 960 ? "Open" : m >= 240 && m < 570 ? "Pre-market" : m >= 960 && m < 1200 ? "After hours" : "Closed";
+    var t = etNow(), m = t.m, c = closeMinute(t);
+    if (closedDay()) return "Closed";
+    return m >= 570 && m < c ? "Open" : m >= 240 && m < 570 ? "Pre-market" : m >= c && m < c + 240 ? "After hours" : "Closed";
   }
   function rh(sym) { return "https://robinhood.com/stocks/" + encodeURIComponent(sym); }
 
@@ -805,7 +829,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
   function render() {
     renderWatch();
     renderNews();
-    var nNew = (data.unusual || []).filter(function (r) { return isNew(r.symbol); }).length;
+    var nNew = closedDay() ? 0 : (data.unusual || []).filter(function (r) { return isNew(r.symbol); }).length;
+    renderRecap();
     $("newBadge").hidden = !nNew; $("newBadge").textContent = nNew;
     paintStatus(nNew);
     paintGlance(nNew);
@@ -853,6 +878,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
 
   function paintStatus(nNew) {
     var ses = session(), live = data && data.live;
+    if (closedDay()) { $("status").innerHTML = '<span class="pill">Market closed · ' + closedDay().toLowerCase() + '</span>'; return; }
     $("status").innerHTML = '<span class="pill ' + (ses === "Open" ? "on" : ses === "Pre-market" || ses === "After hours" ? "warn" : "") + '">' + ses + '</span>' +
       '<span class="pill ' + (live ? "on" : "") + '">' + (live ? "Live · about 1 min" : "Delayed · about 15 min") + '</span>' +
       (nNew ? newPill(true) : "");
@@ -882,6 +908,36 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var o = m.filter(function (r) { return BENCH.indexOf(r.symbol) < 0; }).sort(function (x, y) { return Math.abs(y.pct) - Math.abs(x.pct); });
     return b.concat(o);
   }
+  function fmtDay(ymd) {
+    var p = ymd.split("-");
+    return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  }
+  function nextSession(t) {
+    if (mkt && mkt.next && mkt.next.date > t.date) {
+      var h = mkt.next.open.split(":");
+      return fmtDay(mkt.next.date) + " · " + (+h[0] % 12 || 12) + ":" + h[1] + (+h[0] < 12 ? "am" : "pm") + " ET";
+    }
+    var p = t.date.split("-"), d = new Date(+p[0], +p[1] - 1, +p[2]);   // no calendar yet: next weekday, 9:30am
+    do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
+    return d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) + " · 9:30am ET";
+  }
+  // Closed day: say so plainly and recap the last session in numbers (indexes, breadth, biggest moves), no live-looking chrome.
+  function renderRecap() {
+    var el = $("recap"), why = closedDay();
+    el.hidden = !why || !data;
+    if (el.hidden) return;
+    var last = new Date(data.generated).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    var idx = (data.market || []).filter(function (r) { return BENCH.indexOf(r.symbol) >= 0; })
+      .sort(function (a, b) { return BENCH.indexOf(a.symbol) - BENCH.indexOf(b.symbol); });
+    var seenS = {}, big = (data.unusual || []).concat(data.swingers || []).filter(function (r) { return !seenS[r.symbol] && (seenS[r.symbol] = 1); })
+      .sort(function (a, b) { return Math.abs(b.pct) - Math.abs(a.pct); }).slice(0, 3);
+    var item = function (r) { return '<span class="r-i">' + esc(r.symbol) + ' <span class="' + cls(r.pct) + '">' + pct(r.pct) + '</span></span>'; };
+    var b = data.breadth;
+    el.innerHTML = '<div class="r-head"><b>Market closed · ' + why.toLowerCase() + '</b><span class="r-next">Reopens ' + esc(nextSession(etNow())) + '</span></div>' +
+      '<div class="r-rows"><span><span class="r-lab">' + esc(fmtDay(last)) + ' session</span>' + idx.map(item).join(" ") + '</span>' +
+      (b ? '<span><span class="r-lab">Breadth</span><span class="r-i"><span class="up">' + b.up + ' up</span> · <span class="down">' + b.down + ' down</span></span></span>' : "") +
+      (big.length ? '<span><span class="r-lab">Biggest moves</span>' + big.map(item).join(" ") + '</span>' : "") + '</div>';
+  }
   function renderMarket() {
     if (!data) return;
     $("market").innerHTML = marketOrder(data.market).map(function (r) {
@@ -896,7 +952,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     data = d;
     notify(track(d));
     var when = new Date(d.generated);
-    $("asof").textContent = (d.slot === "After hours" ? "After hours (thin) · " : d.slot === "Close" ? "Closing update · " : d.live ? "Live · updated " : "Updated ") +
+    $("asof").textContent = (closedDay() ? "Last session · " : d.slot === "After hours" ? "After hours (thin) · " : d.slot === "Close" ? "Closing update · " : d.live ? "Live · updated " : "Updated ") +
       when.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) +
       " (" + ago(d.generated) + ")";
     $("demo").hidden = !d.demo;
@@ -1047,8 +1103,10 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
       gotLive = true; boot(d);
     }).catch(function () { if (!first) return digest(); }).catch(failed);
   }
+  function loadMarket() { getJSON("market.json").then(function (m) { mkt = m; if (data) boot(data); }).catch(function () {}); }
   getJSON("exchanges.json").then(function (d) { exchanges = d.ex || {}; if (data) renderWatch(); }).catch(function () {});
   getJSON("live.json").then(function (c) { liveUrl = c.url || null; }).catch(function () {}).then(function () {
+    loadMarket();
     load(true);
     loadGaps();
     loadNews();
@@ -1056,7 +1114,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     loadEarnings();
     // Live data refreshes every minute; the plain digest about every 15, so check every 3.
     // Keep polling in a background tab while alerts are on.
-    setInterval(function () { if (!document.hidden || alertsOn) { load(false); loadGaps(); loadNews(); loadSparks(); loadEarnings(); } }, liveUrl ? 60000 : 180000);
+    setInterval(function () { if (!document.hidden || alertsOn) { loadMarket(); load(false); loadGaps(); loadNews(); loadSparks(); loadEarnings(); } }, liveUrl ? 60000 : 180000);
   });
 })();
 </script>

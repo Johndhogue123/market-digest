@@ -33,6 +33,8 @@ NEWS_OUT = os.path.join(ROOT, "docs", "news.json")
 SPARK_OUT = os.path.join(ROOT, "docs", "spark.json")
 # S&P names reporting today and over the next few days, for the page's Earnings strip.
 EARNINGS_OUT = os.path.join(ROOT, "docs", "earnings.json")
+# Is today a trading day, its hours, and the next session; lets the page show "Market closed" on holidays too.
+MARKET_OUT = os.path.join(ROOT, "docs", "market.json")
 DATA_URL = "https://data.alpaca.markets"
 TRADING_URL = "https://paper-api.alpaca.markets"
 ET = ZoneInfo("America/New_York")
@@ -125,14 +127,29 @@ def chunks(seq, n):
         yield seq[i:i + n]
 
 
-def market_hours(today):
+def calendar_days(today):
+    """Trading days from today through the next ten calendar days (today is absent on weekends and holidays)."""
+    end = (datetime.fromisoformat(today) + timedelta(days=10)).date().isoformat()
+    return sorted(get(TRADING_URL, "/v2/calendar", {"start": today, "end": end}), key=lambda d: d["date"])
+
+
+def market_hours(today, days):
     """Today's (open, close) as ET datetimes, or None on a market holiday."""
-    days = get(TRADING_URL, "/v2/calendar", {"start": today, "end": today})
-    if not days:
+    if not days or days[0]["date"] != today:
         return None
     d = days[0]
     at = lambda hm: datetime.fromisoformat(f"{d['date']}T{hm}").replace(tzinfo=ET)
     return at(d["open"]), at(d["close"])
+
+
+def market_status(today, days):
+    """What the page needs to show a clean closed state: whether today trades, its hours, and the next session."""
+    hours = market_hours(today, days)
+    nxt = next((d for d in days if d["date"] > today), None)
+    return {"date": today, "closed": hours is None,
+            "open": hours[0].isoformat(timespec="minutes") if hours else None,
+            "close": hours[1].isoformat(timespec="minutes") if hours else None,
+            "next": ({"date": nxt["date"], "open": nxt["open"]} if nxt else None)}
 
 
 def fetch_snapshots(symbols):
@@ -633,7 +650,9 @@ def main():
     if demo:
         rows = demo_rows(names, groups)
     else:
-        hours = market_hours(today)
+        days = calendar_days(today)
+        write_json(MARKET_OUT, market_status(today, days))
+        hours = market_hours(today, days)
         close = hours[1] if hours else None
         write_exchanges(symbols, today)
         pre_window = hours and hours[0] - timedelta(minutes=PREMARKET_START_MIN) <= now_et < hours[0]
