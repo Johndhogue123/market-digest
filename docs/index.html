@@ -7,6 +7,25 @@
 <link rel="icon" id="fav" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2713%27 fill=%27%238a96a8%27/%3E%3C/svg%3E">
 <link rel="preload" href="fonts/PublicSans.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+/* ---- Quick filters ---- */
+.filters { position: sticky; top: 42px; z-index: 15; box-shadow: var(--shadow); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0; padding: 7px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; font-size: 12px; }
+.filters .fg { display: inline-flex; align-items: center; gap: 4px; }
+.filters .fl { color: var(--muted); font-weight: 600; margin-right: 2px; }
+.filters button { font: inherit; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.filters button[aria-pressed="true"] { background: var(--surface-2); color: var(--fg); border-color: var(--muted); }
+.filters .fg.on button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.filters .fg.on .fl { color: var(--fg); }
+.filters .fcount { margin-left: auto; color: var(--muted); font-weight: 600; }
+.filters .fcount.active { color: var(--fg); }
+.filters .freset { border-style: dashed; }
+@media (max-width: 640px) {
+  .filters { top: 36px; flex-wrap: nowrap; overflow-x: auto; gap: 12px; padding: 6px 8px; margin: 6px 0; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
+  .filters .fg, .filters .fcount, .filters .freset { flex: none; }
+  .filters .fcount { order: -2; margin-left: 0; }
+  .filters .freset { order: -1; }
+}
+
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url(fonts/IBMPlexMono-400.woff2) format("woff2"); }
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url(fonts/IBMPlexMono-500.woff2) format("woff2"); }
 @font-face { font-family: "IBM Plex Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url(fonts/IBMPlexMono-600.woff2) format("woff2"); }
@@ -470,6 +489,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     <button role="tab" data-tab="unusual" aria-selected="true">Unusual moves<span class="badge" id="newBadge" hidden></span></button>
     <button role="tab" data-tab="swingers" aria-selected="false">Big swingers</button>
   </div>
+  <div class="filters" id="filters" aria-label="Quick filters"></div>
   <div class="cols" id="cols" data-active="unusual">
     <section class="col" data-col="unusual"><h3>Unusual moves</h3><p class="explain" id="explain-unusual"></p><ul class="list" id="list-unusual"><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li></ul></section>
     <section class="col" data-col="swingers"><h3>Big swingers</h3><p class="explain" id="explain-swingers"></p><ul class="list" id="list-swingers"><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li><li class="row skel"></li></ul></section>
@@ -802,6 +822,46 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     getJSON("news.json").then(function (n) { news = n; renderNews(); if (data) renderWatch(); }).catch(function () {});
   }
 
+  // ---- Quick filters: applied to both lists, remembered in this browser ----
+  var FDEF = { price: 0, dir: "both", mult: 0, vol: 0, kind: "all" };
+  var FOPTS = [
+    ["price", "Max $", [[0, "Any"], [50, "\u2264$50"], [100, "\u2264$100"], [250, "\u2264$250"]]],
+    ["dir", "Move", [["both", "Both"], ["up", "Up"], ["down", "Down"]]],
+    ["mult", "\u00d7 normal", [[0, "Any"], [2, "2\u00d7+"], [3, "3\u00d7+"], [5, "5\u00d7+"]]],
+    ["vol", "Volume", [[0, "Any"], [2, "Hot 2\u00d7+"]]],
+    ["kind", "Type", [["all", "All"], ["stock", "Stocks"], ["etf", "ETFs"]]]
+  ];
+  var filt = (function () { var f = {}, sv = store("md-filters") || {}; for (var k in FDEF) f[k] = k in sv ? sv[k] : FDEF[k]; return f; })();
+  function passes(r) {
+    if (filt.price && !(r.price <= filt.price)) return false;
+    if (filt.dir === "up" && !(r.pct > 0)) return false;
+    if (filt.dir === "down" && !(r.pct < 0)) return false;
+    if (filt.mult && !(r.ratio >= filt.mult)) return false;
+    if (filt.vol && !(r.rvol >= filt.vol)) return false;
+    var etf = /^ETF/.test(r.group || "");
+    if (filt.kind === "etf" && !etf) return false;
+    if (filt.kind === "stock" && etf) return false;
+    return true;
+  }
+  function filtersOn() { for (var k in FDEF) if (filt[k] !== FDEF[k]) return true; return false; }
+  function paintFilters(shown, total) {
+    var h = FOPTS.map(function (o) {
+      return '<span class="fg' + (filt[o[0]] !== FDEF[o[0]] ? " on" : "") + '"><span class="fl">' + o[1] + '</span>' +
+        o[2].map(function (c) { return '<button type="button" data-f="' + o[0] + '" data-v="' + c[0] + '" aria-pressed="' + (String(filt[o[0]]) === String(c[0])) + '">' + c[1] + '</button>'; }).join("") + '</span>';
+    }).join("");
+    var on = filtersOn();
+    h += '<span class="fcount' + (on ? " active" : "") + '">' + (on ? "Showing " + shown + " of " + total : total + " shown") + '</span>' + (on ? '<button type="button" class="freset" data-f="reset">Reset</button>' : "");
+    $("filters").innerHTML = h;
+  }
+  $("filters").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-f]"); if (!b) return;
+    var k = b.getAttribute("data-f");
+    if (k === "reset") { for (var d in FDEF) filt[d] = FDEF[d]; }
+    else { var v = b.getAttribute("data-v"); filt[k] = typeof FDEF[k] === "number" ? Number(v) : v; }
+    store("md-filters", filt);
+    if (data) render();
+  });
+
   function render() {
     renderWatch();
     renderNews();
@@ -812,12 +872,15 @@ a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outlin
     var s = data.settings;
     $("explain-unusual").textContent = "At least " + s.unusual_ratio + "× their normal daily swing. Streaks and 52-week extremes rank a little higher.";
     $("explain-swingers").textContent = "Usually move " + s.swinger_normal + "%+ a day, biggest move first.";
+    var fShown = 0, fTotal = 0;
     ["unusual", "swingers"].forEach(function (t) {
-      var rows = data[t], shown = showAll[t] ? rows : rows.slice(0, TOP_N);
+      fTotal += data[t].length;
+      var rows = data[t].filter(passes); fShown += rows.length; var shown = showAll[t] ? rows : rows.slice(0, TOP_N);
       $("list-" + t).innerHTML = rows.length ? shown.map(function (r) { return row(r, t); }).join("") +
         (rows.length > TOP_N ? '<li><button class="more" data-more="' + t + '" style="width:100%">' + (showAll[t] ? "Show top " + TOP_N : "Show all " + rows.length) + '</button></li>' : "")
-        : '<li class="empty">Nothing unusual right now.</li>';
+        : '<li class="empty">' + (data[t].length ? "No rows match your filters." : "Nothing unusual right now.") + '</li>';
     });
+    paintFilters(fShown, fTotal);
     flashChanges();
   }
 
