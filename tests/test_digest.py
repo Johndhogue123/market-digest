@@ -109,6 +109,27 @@ class Validation(unittest.TestCase):
         d.validate_scan(self.syms, {s: {} for s in self.syms}, {s: [1] for s in self.syms}, [wild] + [self.good_row] * 99)
 
 
+class Calendar(unittest.TestCase):
+    fri = {"date": "2026-10-23", "open": "09:30", "close": "16:00"}
+    mon = {"date": "2026-10-26", "open": "09:30", "close": "16:00"}
+
+    def test_trading_day(self):
+        m = d.market_status("2026-10-23", [self.fri, self.mon])
+        self.assertFalse(m["closed"])
+        self.assertEqual(m["close"], "2026-10-23T16:00-04:00")
+        self.assertEqual(m["next"], {"date": "2026-10-26", "open": "09:30"})
+
+    def test_weekend_or_holiday_is_closed_with_next_session(self):
+        m = d.market_status("2026-10-24", [self.mon])
+        self.assertTrue(m["closed"])
+        self.assertIsNone(m["open"])
+        self.assertEqual(m["next"]["date"], "2026-10-26")
+
+    def test_early_close_is_kept(self):
+        m = d.market_status("2026-11-27", [{"date": "2026-11-27", "open": "09:30", "close": "13:00"}])
+        self.assertTrue(m["close"].startswith("2026-11-27T13:00"))
+
+
 class Publishing(unittest.TestCase):
     def test_write_json_is_atomic_and_leaves_no_temp(self):
         with tempfile.TemporaryDirectory() as t:
