@@ -1,5 +1,5 @@
 // Near-live market digest. A free Cloudflare Worker that rebuilds the page's
-// lists from fresh Alpaca prices whenever the page asks (at most once a minute).
+// lists from fresh Alpaca prices whenever the page asks (at most every 30 seconds; stale copy served instantly while it refreshes).
 // digest.py still runs every 15 minutes and publishes baseline.json, which holds
 // each stock's normal move and average volume, so this only fetches today's prices
 // and headlines. The list rules mirror digest.py; keep the two in step.
@@ -12,7 +12,8 @@
 // Secrets: ALPACA_KEY_ID, ALPACA_SECRET_KEY, DISPATCH_TOKEN. Var: BASELINE_URL (see wrangler.toml).
 
 const DATA_URL = "https://data.alpaca.markets";
-const CACHE_MS = 55_000;
+const CACHE_MS = 30_000;       // older than this: serve it anyway, refresh in the background
+const MAX_STALE_MS = 180_000;  // older than this: make the visitor wait for a fresh build
 
 let cached = null;   // { at, body } shared by everyone who opens the page
 let building = null;
@@ -33,12 +34,17 @@ export default {
     if (!res.ok) console.log("workflow dispatch failed", res.status, await res.text());
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return reply(null, 204);
     try {
-      if (!cached || Date.now() - cached.at > CACHE_MS) {
-        building = building || build(env).finally(() => { building = null; });
-        cached = { at: Date.now(), body: JSON.stringify(await building) };
+      const age = cached ? Date.now() - cached.at : Infinity;
+      if (age > CACHE_MS) {
+        // One shared build at a time; a failed refresh keeps the old copy.
+        building = building || build(env)
+          .then((data) => { cached = { at: Date.now(), body: JSON.stringify(data) }; })
+          .finally(() => { building = null; });
+        if (age > MAX_STALE_MS) await building;      // nothing usable yet: wait
+        else ctx.waitUntil(building.catch(() => {})); // stale-while-revalidate: answer now
       }
       return reply(cached.body, 200);
     } catch (err) {
