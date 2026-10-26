@@ -46,4 +46,10 @@ jobs:
           for f in docs/data.json docs/baseline.json docs/premarket.json docs/exchanges.json docs/news.json docs/spark.json docs/earnings.json docs/market.json; do [ -f "$f" ] && git add "$f"; done
           git diff --cached --quiet && exit 0
           git commit -m "Digest update $(date -u +%Y-%m-%dT%H:%MZ)"
-          git pull --rebase origin main && git push
+          # These files are regenerated whole each run, so if another run pushed first, keep this run's copy (-X theirs = our commit during a rebase) instead of failing on a conflict.
+          for i in 1 2 3; do
+            git pull --rebase -X theirs origin main && git push && exit 0
+            git rebase --abort 2>/dev/null || true
+            sleep 5
+          done
+          exit 1
