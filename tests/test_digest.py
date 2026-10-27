@@ -14,6 +14,57 @@ import digest as d  # noqa: E402
 SETTINGS = {"near_52w_pct": d.NEAR_52W_PCT, "streak_min": d.STREAK_MIN}
 
 
+class PaperTrades(unittest.TestCase):
+    NOW = datetime(2026, 10, 27, 11, 0, tzinfo=d.ET)
+    CLOSE = datetime(2026, 10, 27, 16, 0, tzinfo=d.ET)
+
+    def row(self, sym, price, pct, ah=None):
+        return {"symbol": sym, "name": sym, "price": price, "pct": pct, "ratio": 3.0, "ah": ah}
+
+    def test_opens_one_trade_per_strategy_with_right_sides(self):
+        up = self.row("UPP", 100, 5.0)
+        state = d.paper_update({}, [up], [up], self.NOW, self.CLOSE)
+        by = {t["strat"]: t for t in state["trades"]}
+        self.assertEqual((by["with"]["side"], by["against"]["side"]), ("long", "short"))
+        self.assertEqual((by["with"]["stop"], by["with"]["target"]), (97.0, 106.0))
+        self.assertEqual((by["against"]["stop"], by["against"]["target"]), (103.0, 94.0))
+
+    def test_no_duplicate_trade_same_day_and_cap(self):
+        rows = [self.row(f"S{i}", 50, 4.0) for i in range(8)]
+        state = d.paper_update({}, rows, rows, self.NOW, self.CLOSE)
+        self.assertEqual(sum(1 for t in state["trades"] if t["strat"] == "with"), d.PAPER_MAX_OPEN)
+        again = d.paper_update(state, rows, rows, self.NOW, self.CLOSE)
+        self.assertEqual(len(again["trades"]), 2 * d.PAPER_MAX_OPEN)
+
+    def test_stop_and_target_exit_at_the_level(self):
+        up = self.row("UPP", 100, 5.0)
+        state = d.paper_update({}, [up], [up], self.NOW, self.CLOSE)
+        fell = self.row("UPP", 96.5, -3.5)  # long is hit at -3.5%, short is up 3.5%
+        state = d.paper_update(state, [fell], [], self.NOW, self.CLOSE)
+        by = {t["strat"]: t for t in state["trades"]}
+        self.assertEqual((by["with"]["why"], by["with"]["pct"]), ("stop", -3.0))
+        self.assertIsNone(by["against"]["exit"])
+        crashed = self.row("UPP", 93, -7.0)
+        state = d.paper_update(state, [crashed], [], self.NOW, self.CLOSE)
+        by = {t["strat"]: t for t in state["trades"]}
+        self.assertEqual((by["against"]["why"], by["against"]["pct"]), ("target", 6.0))
+
+    def test_close_settles_at_session_close_not_after_hours_price(self):
+        up = self.row("UPP", 100, 5.0)
+        state = d.paper_update({}, [up], [up], self.NOW, self.CLOSE)
+        after = datetime(2026, 10, 27, 16, 10, tzinfo=d.ET)
+        late = self.row("UPP", 101, 6.0, ah=1.0)  # session closed at 101 / 1.01 = 100.0
+        state = d.paper_update(state, [late], [late], after, self.CLOSE)
+        by = {t["strat"]: t for t in state["trades"]}
+        self.assertEqual((by["with"]["why"], by["with"]["exit"], by["with"]["pct"]), ("close", 100.0, 0.0))
+        self.assertEqual(len(state["trades"]), 2)  # nothing new opens after the close
+
+    def test_no_new_trades_in_the_last_half_hour(self):
+        up = self.row("UPP", 100, 5.0)
+        late = datetime(2026, 10, 27, 15, 45, tzinfo=d.ET)
+        self.assertEqual(d.paper_update({}, [up], [up], late, self.CLOSE)["trades"], [])
+
+
 class Analysis(unittest.TestCase):
     def test_normal_move_is_larger_of_month_and_quarter(self):
         quiet_month = [100 + (i % 2) * 4 for i in range(40)] + [100 + (i % 2) * 0.1 for i in range(21)]

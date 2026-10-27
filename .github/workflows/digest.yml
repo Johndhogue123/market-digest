@@ -43,7 +43,7 @@ jobs:
         run: |
           git config user.name "market-digest bot"
           git config user.email "actions@users.noreply.github.com"
-          for f in docs/data.json docs/baseline.json docs/premarket.json docs/exchanges.json docs/news.json docs/spark.json docs/earnings.json docs/market.json; do [ -f "$f" ] && git add "$f"; done
+          for f in docs/data.json docs/baseline.json docs/premarket.json docs/exchanges.json docs/news.json docs/spark.json docs/earnings.json docs/market.json docs/paper.json; do [ -f "$f" ] && git add "$f"; done
           git diff --cached --quiet && exit 0
           git commit -m "Digest update $(date -u +%Y-%m-%dT%H:%MZ)"
           # These files are regenerated whole each run, so if another run pushed first, keep this run's copy (-X theirs = our commit during a rebase) instead of failing on a conflict.
