@@ -35,6 +35,8 @@ SPARK_OUT = os.path.join(ROOT, "docs", "spark.json")
 EARNINGS_OUT = os.path.join(ROOT, "docs", "earnings.json")
 # Is today a trading day, its hours, and the next session; lets the page show "Market closed" on holidays too.
 MARKET_OUT = os.path.join(ROOT, "docs", "market.json")
+# Simulated ("paper") trades logged from the Unusual moves list. No orders are sent anywhere.
+PAPER_OUT = os.path.join(ROOT, "docs", "paper.json")
 DATA_URL = "https://data.alpaca.markets"
 TRADING_URL = "https://paper-api.alpaca.markets"
 ET = ZoneInfo("America/New_York")
@@ -48,6 +50,12 @@ UNUSUAL_MIN_PCT = 1.5    # ...and at least this big in absolute %
 SWINGER_NORMAL = 2.5     # a stock whose normal move is at least this % is a "swinger"
 BIGGER_THAN_USUAL = 1.8  # swinger tag threshold
 LIST_SIZE = 25
+PAPER_STAKE = 1000        # dollars per simulated trade
+PAPER_MAX_OPEN = 5        # open trades allowed per strategy at once
+PAPER_STOP = 3.0          # % against the trade that closes it
+PAPER_TARGET = 6.0        # % in favour that closes it
+PAPER_CUTOFF_MIN = 30     # no new trades in the last half hour of the session
+PAPER_KEEP = 600          # closed trades kept in the file
 NEWS_PER_SYMBOL = 3
 NEWS_PAGES = 6             # pages of 50 recent headlines scanned for the combined news strip
 PREMARKET_START_MIN = 150  # pre-market scans begin this many minutes before the open (7:00am ET)
@@ -538,6 +546,82 @@ def run_premarket(symbols, names, groups, now_et, open_et):
     print(f"Wrote {PREMARKET_OUT}: {len(gaps)} gaps from {len(snaps)} snapshots.")
 
 
+# ---------- paper trades (simulated, log only) ----------
+
+def paper_pnl(t, price):
+    """Percent gained (or lost) on a trade at this price, long or short."""
+    move = (price - t["entry"]) / t["entry"] * 100
+    return move if t["side"] == "long" else -move
+
+
+def paper_close(t, price, when, why):
+    t["exit"], t["xt"], t["why"] = round(price, 4), when.isoformat(timespec="minutes"), why
+    t["pct"] = round(paper_pnl(t, price), 2)
+
+
+def paper_update(state, rows, unusual, now_et, close):
+    """One scan's worth of simulated trading. Open trades exit at their stop or target (as a bracket order
+    would), or at the day's close; every unusual mover opens one trade 'with the move' and one 'against' it,
+    up to PAPER_MAX_OPEN open per strategy. Prices come from the same snapshots as the page."""
+    trades = state.setdefault("trades", [])
+    today = now_et.date().isoformat()
+    by = {r["symbol"]: r for r in rows}
+    for t in trades:
+        r = by.get(t["sym"])
+        if t.get("exit") is not None or not r:
+            continue
+        price = r["price"]
+        # After the close, settle at the regular-session close, not an after-hours print.
+        session_close = price / (1 + r["ah"] / 100) if r.get("ah") is not None else price
+        if t["date"] != today or (close and now_et >= close):
+            paper_close(t, session_close, now_et, "close")
+        elif paper_pnl(t, price) <= -PAPER_STOP:
+            paper_close(t, t["stop"], now_et, "stop")
+        elif paper_pnl(t, price) >= PAPER_TARGET:
+            paper_close(t, t["target"], now_et, "target")
+    if close and now_et >= close - timedelta(minutes=PAPER_CUTOFF_MIN):
+        return state
+    for r in unusual:
+        for strat in ("with", "against"):
+            if any(t["sym"] == r["symbol"] and t["strat"] == strat and t["date"] == today for t in trades):
+                continue
+            if sum(1 for t in trades if t["strat"] == strat and t.get("exit") is None) >= PAPER_MAX_OPEN:
+                continue
+            up = r["pct"] > 0
+            side = "long" if up == (strat == "with") else "short"
+            sgn = 1 if side == "long" else -1
+            trades.append({
+                "id": f"{today}-{r['symbol']}-{strat}", "sym": r["symbol"], "name": r.get("name", ""),
+                "strat": strat, "side": side, "date": today, "t": now_et.isoformat(timespec="minutes"),
+                "entry": round(r["price"], 4), "move": r["pct"], "ratio": r.get("ratio"),
+                "stop": round(r["price"] * (1 - sgn * PAPER_STOP / 100), 4),
+                "target": round(r["price"] * (1 + sgn * PAPER_TARGET / 100), 4),
+                "exit": None, "xt": None, "why": None, "pct": None,
+            })
+    shut = [t for t in trades if t.get("exit") is not None]
+    if len(shut) > PAPER_KEEP:
+        drop = {t["id"] for t in shut[:len(shut) - PAPER_KEEP]}
+        state["trades"] = [t for t in trades if t["id"] not in drop]
+    return state
+
+
+def run_paper(rows, unusual, now_et, close):
+    """Best effort: a problem here must never stop the digest itself from publishing."""
+    try:
+        try:
+            with open(PAPER_OUT) as f:
+                state = json.load(f)
+        except (OSError, ValueError):
+            state = {}
+        state = paper_update(state, rows, unusual, now_et, close)
+        state.update({"updated": now_et.isoformat(timespec="minutes"),
+                      "settings": {"stake": PAPER_STAKE, "max_open": PAPER_MAX_OPEN, "stop": PAPER_STOP, "target": PAPER_TARGET}})
+        write_json(PAPER_OUT, state)
+        print(f"Wrote {PAPER_OUT}: {sum(1 for t in state['trades'] if t.get('exit') is None)} open, {len(state['trades'])} total.")
+    except Exception as e:  # noqa: BLE001
+        print(f"Paper trades skipped: {e}")
+
+
 # ---------- demo data ----------
 
 def demo_tail(rnd, prev, normal):
@@ -676,6 +760,8 @@ def main():
         write_earnings_strip(names, volumes, today, now_et)
 
     unusual, swingers, market = pick_lists(rows, etfs)
+    if not demo:
+        run_paper(rows, unusual, now_et, close)
     listed = sorted({r["symbol"] for r in unusual + swingers})
     news = demo_news(listed) if demo else fetch_news(listed)
     for r in unusual + swingers:
