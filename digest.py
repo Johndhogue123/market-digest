@@ -52,6 +52,7 @@ NEWS_PER_SYMBOL = 3
 NEWS_PAGES = 6             # pages of 50 recent headlines scanned for the combined news strip
 PREMARKET_START_MIN = 150  # pre-market scans begin this many minutes before the open (7:00am ET)
 GAP_MIN_PCT = 1.0          # pre-market gap lists need at least this % vs yesterday's close...
+MOVER_COUNT = 5           # when nothing clears the gap bar, still show this many biggest pre-market movers
 GAP_MIN_RATIO = 1.5        # ...and this many times the stock's normal daily move
 NEAR_52W_PCT = 3.0         # within this % of the 52-week high or low earns a "Near 52w" tag
 STREAK_MIN = 3             # this many days in a row the same way earns a "3-day slide/run" tag
@@ -492,7 +493,7 @@ def write_sparks(symbols, start_et, now_et, end_et=None):
 def build_gaps(snaps, closes, names, groups, open_et):
     """Names whose latest pre-market trade is well away from yesterday's close."""
     today = open_et.date().isoformat()
-    rows = []
+    rows, movers = [], []
     for sym, s in snaps.items():
         try:
             lt = s["latestTrade"]
@@ -507,24 +508,28 @@ def build_gaps(snaps, closes, names, groups, open_et):
         nm = normal_move(closes.get(sym, []))
         gap = (lt["p"] - prior) / prior * 100
         ratio = abs(gap) / nm if nm else None
-        if abs(gap) < GAP_MIN_PCT or not ratio or ratio < GAP_MIN_RATIO:
-            continue
-        rows.append({"symbol": sym, "name": names.get(sym, ""), "group": groups.get(sym, ""),
-                     "price": round(lt["p"], 4), "prev": prior, "pct": round(gap, 2),
-                     "normal": round(nm, 2), "ratio": round(ratio, 1), "last_trade": when.isoformat(timespec="minutes")})
+        row = {"symbol": sym, "name": names.get(sym, ""), "group": groups.get(sym, ""),
+               "price": round(lt["p"], 4), "prev": prior, "pct": round(gap, 2),
+               "normal": round(nm, 2) if nm else None, "ratio": round(ratio, 1) if ratio else None,
+               "last_trade": when.isoformat(timespec="minutes")}
+        movers.append(row)
+        if abs(gap) >= GAP_MIN_PCT and ratio and ratio >= GAP_MIN_RATIO:
+            rows.append(row)
     rows.sort(key=lambda r: -r["ratio"])
-    return rows[:LIST_SIZE]
+    movers.sort(key=lambda r: -abs(r["pct"]))
+    return rows[:LIST_SIZE], movers[:MOVER_COUNT], len(movers)
 
 
 def run_premarket(symbols, names, groups, now_et, open_et):
     snaps = fetch_snapshots(symbols)
     closes, _, _ = fetch_daily_history(symbols, open_et.date().isoformat())
     validate_scan(symbols, snaps, closes)
-    gaps = build_gaps(snaps, closes, names, groups, open_et)
-    pm = fetch_premarket_bars([r["symbol"] for r in gaps], now_et.replace(hour=4, minute=0, second=0, microsecond=0),
-                              open_et.date().isoformat()) if gaps else {}
-    news = fetch_news([r["symbol"] for r in gaps]) if gaps else {}
-    for r in gaps:
+    gaps, movers, traded = build_gaps(snaps, closes, names, groups, open_et)
+    shown = gaps or movers
+    pm = fetch_premarket_bars([r["symbol"] for r in shown], now_et.replace(hour=4, minute=0, second=0, microsecond=0),
+                              open_et.date().isoformat()) if shown else {}
+    news = fetch_news([r["symbol"] for r in shown]) if shown else {}
+    for r in gaps + movers:
         b = pm.get(r["symbol"], {})
         r["pm_volume"], r["pm_high"], r["pm_low"] = b.get("volume", 0), b.get("high"), b.get("low")
         r["thin"] = r["pm_volume"] < THIN_SHARES
@@ -533,9 +538,9 @@ def run_premarket(symbols, names, groups, now_et, open_et):
     payload = {"generated": now_et.isoformat(timespec="minutes"), "date": open_et.date().isoformat(),
                "open": open_et.isoformat(timespec="minutes"),
                "settings": {"min_pct": GAP_MIN_PCT, "min_ratio": GAP_MIN_RATIO, "thin_shares": THIN_SHARES},
-               "gaps": gaps, "scanned": len(snaps)}
+               "gaps": gaps, "movers": movers, "traded": traded, "scanned": len(snaps)}
     write_json(PREMARKET_OUT, payload)
-    print(f"Wrote {PREMARKET_OUT}: {len(gaps)} gaps from {len(snaps)} snapshots.")
+    print(f"Wrote {PREMARKET_OUT}: {len(gaps)} gaps, {traded} with a pre-market trade, from {len(snaps)} snapshots.")
 
 
 # ---------- demo data ----------
