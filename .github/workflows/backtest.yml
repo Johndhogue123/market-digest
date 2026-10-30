@@ -1,0 +1,40 @@
+name: Backtest
+
+# Manual only. Replays the paper-trading rules on past Alpaca data and uploads a report. Reads Alpaca history (slowly,
+# well under the shared 200/min limit) and writes nothing to the repo, the page or the digest.
+on:
+  workflow_dispatch:
+    inputs:
+      trial:
+        description: "Quick trial on 20 symbols to check the plumbing"
+        type: boolean
+        default: false
+      years:
+        description: "Years of history"
+        default: "2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run backtest
+        env:
+          ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python backtest/backtest.py --years "${{ inputs.years }}" --rate 60 ${{ inputs.trial && '--limit-symbols 20' || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backtest-results
+          path: backtest/out/
