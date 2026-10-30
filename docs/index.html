@@ -273,6 +273,8 @@ footer { line-height: 1.5; margin-top: 8px; }
 .pp-open { display: flex; flex-wrap: wrap; gap: 6px; }
 .pp-pos { display: inline-flex; gap: 6px; align-items: baseline; font-family: var(--font-num); font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 9px; text-decoration: none; color: inherit; }
 .pp-pos b { font-weight: 700; } .pp-pos i { font-style: normal; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.pp-card .pp-how { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.pp-pos i.long { color: var(--up); } .pp-pos i.short { color: var(--down); }
 .pp-pos.up { background: var(--up-bg); } .pp-pos.down { background: var(--down-bg); }
 @media (min-width: 1100px) { .pp-cards { grid-template-columns: repeat(2, minmax(0, 340px)); } }
 @media (max-width: 640px) { .pp-card .pp-v { font-size: 19px; } }
@@ -506,7 +508,7 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
 
   <section id="paperbox" hidden aria-label="Paper trading">
     <h2>Paper trading</h2>
-    <p class="explain">Pretend $<span id="ppStake">1,000</span> on each unusual move, stop −3%, target +6%, sold at the close. Nothing is bought.</p>
+    <p class="explain">Pretend same-day stock trades: $<span id="ppStake">1,000</span> on each unusual mover, closed at a 3% loss, a 6% gain, or 4pm. Stocks only, no options, no real orders.</p>
     <div class="pp-cards" id="ppCards"></div>
     <div class="pp-open" id="ppOpen"></div>
   </section>
@@ -758,7 +760,7 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
       var v = q[t.sym]; if (!v) return 0;
       var m = (v[1] - t.entry) / t.entry * 100; return t.side === "long" ? m : -m;
     }
-    var names = { "with": "With the move", "against": "Against the move" }, open = [];
+    var names = { "with": "Momentum", "against": "Fade" }, how = { "with": "Buy risers, short fallers", "against": "Short risers, buy fallers" }, open = [];
     $("ppStake").textContent = stake.toLocaleString("en-US");
     $("ppCards").innerHTML = ["with", "against"].map(function (k) {
       var ts = paper.trades.filter(function (t) { return t.strat === k; });
@@ -767,14 +769,14 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
         var usdv = stake * pctNow(t) / 100; total += usdv; if (t.date === today) dayTotal += usdv;
         if (t.exit != null) { done++; if (t.pct > 0) won++; } else { nOpen++; open.push(t); }
       });
-      return '<div class="pp-card ' + cls(total) + '"><span class="pp-t">' + names[k] + '</span><span class="pp-v ' + cls(total) + '">' + ppMoney(total) + '</span>' +
+      return '<div class="pp-card ' + cls(total) + '"><span class="pp-t">' + names[k] + ' <span class="pp-how">· ' + how[k] + '</span></span><span class="pp-v ' + cls(total) + '">' + ppMoney(total) + '</span>' +
         '<span class="pp-s">' + (done ? won + ' of ' + done + ' won' : 'none closed yet') + ' · ' + nOpen + ' open · today <span class="' + cls(dayTotal) + '">' + ppMoney(dayTotal) + '</span></span></div>';
     }).join("");
-    open.sort(function (a, b) { return Math.abs(pctNow(b)) - Math.abs(pctNow(a)); });
+    open.sort(function (a, b) { return (a.strat === b.strat ? 0 : a.strat === "with" ? -1 : 1) || Math.abs(pctNow(b)) - Math.abs(pctNow(a)); });
     $("ppOpen").innerHTML = open.map(function (t) {
       var p = pctNow(t);
-      return '<a class="pp-pos ' + cls(p) + '" href="' + rh(t.sym) + '" target="_blank" rel="noopener" title="' + esc(names[t.strat]) + ': ' + t.side + ' from ' + usd(t.entry) + ', stop ' + usd(t.stop) + ', target ' + usd(t.target) + '">' +
-        '<b>' + esc(t.sym) + '</b><i>' + (t.strat === "with" ? "with" : "against") + ' ' + t.side + '</i><span class="' + cls(p) + '">' + pct(p) + '</span></a>';
+      return '<a class="pp-pos ' + cls(p) + '" href="' + rh(t.sym) + '" target="_blank" rel="noopener" title="' + esc(names[t.strat]) + ': ' + (t.side === "long" ? "bought" : "shorted") + ' ' + t.sym + ' at ' + usd(t.entry) + ', stop ' + usd(t.stop) + ', target ' + usd(t.target) + '">' +
+        '<i class="' + t.side + '">' + (t.side === "long" ? "Long" : "Short") + '</i><b>' + esc(t.sym) + '</b><em class="px">@ ' + usd(t.entry) + '</em><span class="' + cls(p) + '">' + pct(p) + '</span><i>' + names[t.strat] + '</i></a>';
     }).join("");
     box.hidden = false;
   }
