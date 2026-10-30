@@ -265,6 +265,8 @@ footer { line-height: 1.5; margin-top: 8px; }
 /* ---- Paper trading strip: simulated trades from the Unusual moves list ---- */
 #paperbox { display: grid; gap: 8px; min-width: 0; }
 .pp-cards { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+.pp-cards .pp-card:nth-child(3) { grid-column: 1 / -1; }
+@media (min-width: 1100px) { .pp-cards .pp-card:nth-child(3) { grid-column: auto; } }
 .pp-card { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 10px; padding: 9px 12px; display: grid; gap: 2px; }
 .pp-card.up { border-left-color: var(--up); } .pp-card.down { border-left-color: var(--down); }
 .pp-card .pp-t { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
@@ -276,7 +278,7 @@ footer { line-height: 1.5; margin-top: 8px; }
 .pp-card .pp-how { font-weight: 500; text-transform: none; letter-spacing: 0; }
 .pp-pos i.long { color: var(--up); } .pp-pos i.short { color: var(--down); }
 .pp-pos.up { background: var(--up-bg); } .pp-pos.down { background: var(--down-bg); }
-@media (min-width: 1100px) { .pp-cards { grid-template-columns: repeat(2, minmax(0, 340px)); } }
+@media (min-width: 1100px) { .pp-cards { grid-template-columns: repeat(3, minmax(0, 340px)); } }
 @media (max-width: 640px) { .pp-card .pp-v { font-size: 19px; } }
 /* ---- Round 2: sticky glance bar, update flashes, featured top row, calmer headline strip ---- */
 .glance { position: fixed; top: 0; left: 0; right: 0; z-index: 20; display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 8px 16px;
@@ -762,16 +764,18 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
     }
     var names = { "with": "Momentum", "against": "Fade" }, how = { "with": "Buy risers, short fallers", "against": "Short risers, buy fallers" }, open = [];
     $("ppStake").textContent = stake.toLocaleString("en-US");
-    $("ppCards").innerHTML = ["with", "against"].map(function (k) {
-      var ts = paper.trades.filter(function (t) { return t.strat === k; });
+    function card(title, sub, ts, collect) {
       var total = 0, dayTotal = 0, won = 0, done = 0, nOpen = 0;
       ts.forEach(function (t) {
         var usdv = stake * pctNow(t) / 100; total += usdv; if (t.date === today) dayTotal += usdv;
-        if (t.exit != null) { done++; if (t.pct > 0) won++; } else { nOpen++; open.push(t); }
+        if (t.exit != null) { done++; if (t.pct > 0) won++; } else { nOpen++; if (collect) open.push(t); }
       });
-      return '<div class="pp-card ' + cls(total) + '"><span class="pp-t">' + names[k] + ' <span class="pp-how">· ' + how[k] + '</span></span><span class="pp-v ' + cls(total) + '">' + ppMoney(total) + '</span>' +
+      return '<div class="pp-card ' + cls(total) + '"><span class="pp-t">' + title + ' <span class="pp-how">· ' + sub + '</span></span><span class="pp-v ' + cls(total) + '">' + ppMoney(total) + '</span>' +
         '<span class="pp-s">' + (done ? won + ' of ' + done + ' won' : 'none closed yet') + ' · ' + nOpen + ' open · today <span class="' + cls(dayTotal) + '">' + ppMoney(dayTotal) + '</span></span></div>';
-    }).join("");
+    }
+    $("ppCards").innerHTML = ["with", "against"].map(function (k) {
+      return card(names[k], how[k], paper.trades.filter(function (t) { return t.strat === k; }), true);
+    }).join("") + card("Long only", "just the buys from both, no shorting", paper.trades.filter(function (t) { return t.side === "long"; }), false);
     open.sort(function (a, b) { return (a.strat === b.strat ? 0 : a.strat === "with" ? -1 : 1) || Math.abs(pctNow(b)) - Math.abs(pctNow(a)); });
     $("ppOpen").innerHTML = open.map(function (t) {
       var p = pctNow(t);
