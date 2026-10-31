@@ -1,0 +1,43 @@
+name: Event study
+
+# Manual only. Measures how stocks move after big drops and spikes and uploads a report. Reads Alpaca history slowly
+# (well under the shared 200/min limit) and writes nothing to the repo, the page or the digest.
+on:
+  workflow_dispatch:
+    inputs:
+      trial:
+        description: "Quick trial on 20 symbols to check the plumbing"
+        type: boolean
+        default: false
+      years:
+        description: "Years of history"
+        default: "2"
+      rate:
+        description: "Alpaca calls per minute (the limit is 200 and is shared with the digest; keep it low on weekdays)"
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest
+  cancel-in-progress: false
+
+jobs:
+  events:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run event study
+        env:
+          ALPACA_KEY_ID: ${{ secrets.ALPACA_KEY_ID }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+        run: python backtest/events.py --years "${{ inputs.years }}" --rate "${{ inputs.rate }}" ${{ inputs.trial && '--limit-symbols 20' || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: events-results
+          path: backtest/out/
