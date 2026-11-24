@@ -137,10 +137,10 @@ function trend(s, price, high, low, tail, range52) {
 const rankScore = (r, s) => r.ratio * (r.near52 || Math.abs(r.streak || 0) >= s.streak_min ? 1.25 : 1);
 
 async function fetchNews(env, symbols, perSymbol) {
-  const since = new Date(Date.now() - 36 * 3600_000).toISOString().replace(/\.\d+Z$/, "Z");
+  const since = new Date(Date.now() - 72 * 3600_000).toISOString().replace(/\.\d+Z$/, "Z");
   const wanted = new Set(symbols);
   const found = Object.fromEntries(symbols.map((s) => [s, new Map()]));
-  const pages = await Promise.all(chunks(symbols, 10).map((part) =>
+  const pages = await Promise.all(chunks(symbols, 4).map((part) =>
     alpaca(env, "/v1beta1/news", { symbols: part.join(","), start: since, limit: 50, sort: "desc" })
       .catch(() => ({ news: [] }))));
   for (const res of pages) {
