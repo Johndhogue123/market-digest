@@ -57,6 +57,8 @@ PAPER_TARGET = 6.0        # % in favour that closes it
 PAPER_CUTOFF_MIN = 30     # no new trades in the last half hour of the session
 PAPER_KEEP = 600          # closed trades kept in the file
 NEWS_PER_SYMBOL = 3
+NEWS_LOOKBACK_H = 72      # was 36h: weekends/holidays left most names empty
+NEWS_CHUNK = 4            # symbols per news request (was 10: busy names crowded out the 50-article cap)
 NEWS_PAGES = 6             # pages of 50 recent headlines scanned for the combined news strip
 PREMARKET_START_MIN = 150  # pre-market scans begin this many minutes before the open (7:00am ET)
 GAP_MIN_PCT = 1.0          # pre-market gap lists need at least this % vs yesterday's close...
@@ -198,13 +200,21 @@ def fetch_daily_history(symbols, today):
 def fetch_news(symbols):
     """Latest headlines per symbol. Articles about one or two companies rank
     ahead of market roundups that tag dozens of tickers."""
-    since = (datetime.now(timezone.utc) - timedelta(hours=36)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = (datetime.now(timezone.utc) - timedelta(hours=NEWS_LOOKBACK_H)).strftime("%Y-%m-%dT%H:%M:%SZ")
     wanted = set(symbols)
     found = {s: {} for s in symbols}
-    for part in chunks(list(symbols), 10):
-        res = get(DATA_URL, "/v1beta1/news", {"symbols": ",".join(part), "start": since,
-                                             "limit": 50, "sort": "desc"})
-        for a in res.get("news", []):
+    for part in chunks(list(symbols), NEWS_CHUNK):
+        token, arts = None, []
+        for _ in range(2):  # a busy chunk can exceed one page; the old single page starved quiet names
+            params = {"symbols": ",".join(part), "start": since, "limit": 50, "sort": "desc"}
+            if token:
+                params["page_token"] = token
+            res = get(DATA_URL, "/v1beta1/news", params)
+            arts += res.get("news", [])
+            token = res.get("next_page_token")
+            if not token:
+                break
+        for a in arts:
             tagged = a.get("symbols", [])
             item = {"headline": a.get("headline", ""), "url": a.get("url", ""),
                     "source": a.get("source", ""), "time": a.get("created_at", ""),
