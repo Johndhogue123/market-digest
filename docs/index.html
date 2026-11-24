@@ -727,14 +727,33 @@ body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: 
   var gaps = null;
   function gapRow(r) {
     var tags = r.thin ? '<span class="tag dim" title="Few shares traded on IEX, so this price may not mean much">Thin</span>' : "";
-    return '<li class="row"><div class="top"><button class="head" aria-expanded="false">' +
+    var isOpen = !!open["gap:" + r.symbol];
+    return '<li class="row" data-g="' + esc(r.symbol) + '"><div class="top"><button class="head" aria-expanded="' + isOpen + '">' +
       '<span><span class="tk">' + esc(r.symbol) + '</span> <span class="px">' + usd(r.price) + '</span> <span class="nm">' + esc(r.name) + '</span></span>' +
       '<span class="chg ' + cls(r.pct) + '">' + pct(r.pct) + '</span>' +
       '<span class="meta">' + tags + '<span class="nm">was ' + usd(r.prev) + '</span>' +
       '<span class="vol">' + Math.round(r.pm_volume).toLocaleString() + ' sh</span></span>' +
       '<span class="ratio">' + mvbar(r.ratio, cls(r.pct)) + (r.ratio != null ? r.ratio.toFixed(1) + '× normal' : '') + '</span>' + peek(r) + '</button>' +
-      '<a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener">Trade ↗</a></div></li>';
+      '<a class="trade" href="' + rh(r.symbol) + '" target="_blank" rel="noopener">Trade ↗</a></div>' +
+      '<div class="detail"' + (isOpen ? '' : ' hidden') + '>' + (isOpen ? gapDetail(r) : '') + '</div></li>';
   }
+  // Expanded gap row: every headline as a link (with its summary), pre-market range, and quote links.
+  function gapDetail(r) {
+    var t = encodeURIComponent(r.symbol);
+    var news = (r.news || []).map(function (n) {
+      return '<li><a href="' + esc(n.url) + '" target="_blank" rel="noopener">' + esc(n.headline) + '</a>' +
+        '<span>' + esc(n.source) + ' · ' + esc(ago(n.time)) + '</span>' + (n.summary ? '<p class="explain">' + esc(n.summary) + '</p>' : '') + '</li>';
+    }).join("");
+    return (r.pm_low != null && r.pm_high != null ? '<p class="read">Pre-market range <b>' + usd(r.pm_low) + '</b> to <b>' + usd(r.pm_high) + '</b>; last trade ' + usd(r.price) + ', yesterday closed ' + usd(r.prev) + '.</p>' : '') +
+      (news ? '<ul class="news">' + news + '</ul>' : '<p class="explain">No headlines in the last day and a half.</p>') +
+      '<div class="links"><a href="https://robinhood.com/stocks/' + t + '" target="_blank" rel="noopener">Robinhood</a>' +
+      '<a href="' + gf(r.symbol) + '" target="_blank" rel="noopener">Google Finance</a>' +
+      '<a href="https://finance.yahoo.com/quote/' + t + '/news" target="_blank" rel="noopener">Yahoo news</a></div>';
+  }
+  $("gapList").addEventListener("click", function (e) {
+    var h = e.target.closest(".head"); if (!h) return;
+    var k = "gap:" + h.closest(".row").getAttribute("data-g"); open[k] = !open[k]; renderGaps();
+  });
   function renderGaps() {
     var box = $("gapbox");
     var today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
